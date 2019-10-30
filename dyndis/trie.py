@@ -9,8 +9,7 @@ V = TypeVar('V')
 _missing = object()
 _no_default = object()
 
-# todo test
-# todo implement in rust?
+
 class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
     _empty_val: V
     _len: int
@@ -173,18 +172,16 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
     def __eq__(self, other):
         if not isinstance(other, type(self)):
             return False
-        return self._empty_val == other._empty_val \
+        return len(self) == len(other) \
+               and self._empty_val == other._empty_val \
                and self._children == other._children
-
-    def __ne__(self, other):
-        return not (self == other)
 
     def pop(self, key, default=_no_default):
         success, child_key, ret = self._pop(iter(key))
         if not success:
             if default is _no_default:
                 raise KeyError(key)
-            return _no_default
+            return default
         if child_key is not _missing:
             # a 0-length child needs dropping
             assert len(self._children[child_key]) == 0
@@ -196,7 +193,11 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
             raise KeyError
         buffer = []
         v = self._pop_item(buffer)
-        if key_joiner:
+        if buffer:
+            first = buffer[0]
+            if not self.children[first]:
+                del self.children[first]
+        if key_joiner not in (None, list):
             key = key_joiner(buffer)
         else:
             key = buffer
@@ -212,16 +213,11 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
 
     def value(self, default=_no_default):
         ret = self._empty_val
-        if ret is _no_default:
+        if ret is _missing:
             if default is _no_default:
                 raise KeyError()
             return default
         return ret
 
-
-t = Trie()
-t.setdefault('hello', 'world')
-t['holla'] = 'worlda'
-print(t.setdefault('holla'))
-print(t.popitem(''.join))
-print(dict(t.items(''.join)))
+    def has_value(self):
+        return self._empty_val is _missing

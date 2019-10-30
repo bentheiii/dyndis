@@ -1,7 +1,7 @@
 from abc import abstractmethod, ABC
 from typing import Dict, Any, Tuple, Union
 
-from multidispatch import MultiDispatch
+from dyndis import MultiDispatch
 
 add = MultiDispatch()
 mul = MultiDispatch()

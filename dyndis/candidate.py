@@ -1,9 +1,6 @@
 from inspect import signature, Parameter
 from itertools import chain, product, permutations
-from numbers import Number
 from typing import Union, Callable, get_type_hints, Optional
-
-Priority = Number
 
 
 def to_type_iter(t):
