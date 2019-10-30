@@ -11,23 +11,39 @@ _no_default = object()
 
 
 class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
+    """
+    A generic non-compressing trie that supports manual search. Acts as a mapping of iterables to keys
+    """
     _empty_val: V
     _len: int
 
-    def __init__(self):
+    def __init__(self, map=(), **additionals):
         self._children: Dict[K, Trie[K, V]] = {}
         self.children = MappingProxyType(self._children)
 
         self.clear()
 
+        self.update(map, **additionals)
+
     def _set_default_child(self, k):
+        """
+        ensure the trie has a child for key k, and returns it
+        :param k: the key to ensure a child exists for
+        :return: the child for key k
+        """
         ret = self._children.get(k, None)
         if ret is None:
             ret = self._children[k] = type(self)()
         return ret
 
     def _set(self, i: Iterator[K], v: V, override: bool):
-        # return 2-tuple: the change in lens, the current value for the key
+        """
+        Set a value in the trie
+        :param i: an iterator of keys for the trie and its children
+        :param v: the value to set for the key
+        :param override: whether to destroy an existing key
+        :return: 2-tuple: the change in lens, the current value for the key
+        """
         try:
             n = next(i)
         except StopIteration:
@@ -49,6 +65,12 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
             return delta, val
 
     def _get(self, i: Iterator[K], d: V):
+        """
+        Get the value in a trie
+        :param i: an iterator of keys for the trie and its children
+        :param d: the default value to return if the value does not exist
+        :return: the value of the trie of the final key, or d if none exists
+        """
         try:
             n = next(i)
         except StopIteration:
@@ -60,8 +82,13 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
             return child._get(i, d)
 
     def _pop(self, i: Iterator[K]):
-        # returns a 3-tuple: whether an item was found, the child key the item was found in if it empty,
-        #   and the value of the item
+        """
+        Remove a key and its value from the trie, will delete empty child tries
+        :param i: an iterator of keys for the trie and its children
+        :return: a 3-tuple: whether an item was found,
+         the child key the item was found in if it empty,
+         and the value of the item
+        """
         try:
             n = next(i)
         except StopIteration:
@@ -90,6 +117,11 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
             return True, _missing, popped
 
     def _pop_item(self, buffer: List[K]):
+        """
+        Remove a key-value pair from the trie via DFS, will delete empty child tries
+        :param buffer: a list containing the complete key of the deleted pair
+        :return: the value deleted
+        """
         if self._empty_val is not _missing:
             ret = self._empty_val
             self._empty_val = _missing
@@ -107,6 +139,11 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         return ret
 
     def _items(self):
+        """
+        Iterate over all key-value pairs in the trie an its children (using DFS)
+        Warning: each is returned using the same key buffer, convert to list or other sequency type
+         prior to returning to user
+        """
         buffer = []
         if self._empty_val is not _missing:
             yield buffer, self._empty_val
@@ -149,12 +186,21 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         return self._get(iter(item), _missing) is not _missing
 
     def keys(self, key_joiner: Optional[Callable[[List], Any]] = tuple):
+        """
+        get an iterable of keys
+        :param key_joiner: an optional function to convert the key-buffer to permanent data (default is tuple)
+        """
         if key_joiner:
             return (key_joiner(k) for k, _ in self._items())
         else:
             return (k for k, _ in self._items())
 
     def items(self, key_joiner: Optional[Callable[[List], Any]] = tuple):
+        """
+        get an iterable of key-value pairs
+        :param key_joiner: an optional function to convert the key-buffer to permanent data (default is tuple)
+        """
+
         if key_joiner:
             return ((key_joiner(k), v) for k, v in self._items())
         else:
@@ -166,7 +212,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         for c in self._children.values():
             yield from c.values()
 
-    def get(self, k, default=None):
+    def get(self, k, default=None)->V:
         return self._get(iter(k), default)
 
     def __eq__(self, other):
@@ -212,6 +258,10 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         return self._set(iter(k), default, override=False)[1]
 
     def value(self, default=_no_default):
+        """
+        Get the current internal value of the trie, equivelant to `self[()]`
+        :param default: the optional value to return if a the trie has no value, by default, will raise KeyError
+        """
         ret = self._empty_val
         if ret is _missing:
             if default is _no_default:
@@ -220,4 +270,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         return ret
 
     def has_value(self):
+        """
+        :return: whether the trie has in internal value, equivelant to `() in self`
+        """
         return self._empty_val is _missing
