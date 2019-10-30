@@ -8,9 +8,12 @@ import numpy as np
 
 class TrieTest(TestCase):
     def assertTrieOk(self, trie: Trie):
+        tot = int(trie.has_value())
         for child in trie.children.values():
             self.assertGreater(len(child), 0)
             self.assertTrieOk(child)
+            tot += len(child)
+        self.assertEqual(tot, len(trie))
 
     def assertTrieEqual(self, trie: Trie, control: Dict):
         self.assertTrieOk(trie)

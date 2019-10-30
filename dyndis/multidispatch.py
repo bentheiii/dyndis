@@ -17,7 +17,7 @@ CandTrie = Trie[type, Dict[Number, Candidate]]
 RawNotImplemented = RawReturnValue(NotImplemented)
 
 
-def process_new_layers(layers: List[List[Candidate]]):
+def process_new_layers(layers: Iterable[List[Candidate]]):
     ret = []
     for layer in layers:
         while True:
@@ -221,26 +221,26 @@ class MultiDispatch:
                                      + ", ".join(t.__name__ for t in types) + ">")
             yield layer[0]
 
-    # todo allow kwargs (don't type check, just inject)
-    def get(self, args, default=None):
+    def get(self, args, kwargs, default=None):
         """
         call the multidispatch with args as arguments, attempts all the appropriate candidate until
          one returns a non-NotImplemted value. If all the candidates are exhausted, returns default.
         :param args: the arguments for the multidispatch
+        :param kwargs: keyword arguments forwarded directly to any attempted candidate
         :param default: the value to return if all candidates are exhausted
         """
         types = tuple(type(a) for a in args)
         for c in self._yield_candidates(types):
-            ret = c.func(*args)
+            ret = c.func(*args, **kwargs)
             if ret is not NotImplemented:
                 return RawReturnValue.unwrap(ret)
         return default
 
-    def __call__(self, *args):
+    def __call__(self, *args, **kwargs):
         """
         call the multidispatch and raise an error if no candidates are found
         """
-        ret = self.get(args, default=EMPTY)
+        ret = self.get(args, kwargs, default=EMPTY)
         if ret is EMPTY:
             raise NotImplementedError(
                 'no valid candidates for argument types <' + ", ".join(type(a).__name__ for a in args) + '>'
@@ -257,7 +257,7 @@ class MultiDispatch:
 
     def implementor(self, *args, **kwargs) -> Union[Callable[[Callable], 'Implementor'], 'Implementor']:
         """
-        create an Implementor for the multidispatch and call its implementor method with the arguments
+        create an Implementor for the MultiDispatch and call its implementor method with the arguments
         """
         return Implementor(self).implementor(*args, **kwargs)
 
@@ -269,7 +269,7 @@ class MultiDispatch:
 
 class MultiDispatchOp:
     """
-    An operator adapter for a multidispatch
+    An operator adapter for a MultiDispatch
     """
 
     def __init__(self, md: MultiDispatch):
@@ -284,5 +284,5 @@ class MultiDispatchOp:
             return partial(self.__call__, instance)
         return self
 
-    def __call__(self, *args):
-        return self.md.get(args, default=NotImplemented)
+    def __call__(self, *args, **kwargs):
+        return self.md.get(args, kwargs, default=NotImplemented)

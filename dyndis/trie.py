@@ -273,4 +273,4 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         """
         :return: whether the trie has in internal value, equivelant to `() in self`
         """
-        return self._empty_val is _missing
+        return self._empty_val is not _missing

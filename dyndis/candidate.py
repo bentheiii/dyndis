@@ -1,6 +1,6 @@
 from inspect import signature, Parameter
 from itertools import chain, product, permutations
-from typing import Union, Callable, get_type_hints, Optional, Any, List, Tuple
+from typing import Union, Callable, get_type_hints, Optional, Any, Tuple, Collection
 
 
 def to_type_iter(t: Union[type, None]):
@@ -57,14 +57,10 @@ class Candidate:
          or keyword-only parameters
         :return: a list of candidates generated from the function
         """
-        # todo handle default parameters
         type_hints = get_type_hints(func)
         params = signature(func).parameters
         type_iters = []
         p: Parameter
-        for p in params.values():
-            if p.kind == p.KEYWORD_ONLY and p.default is not p.empty:
-                raise TypeError(f'function cannot have keyword-only parameter without a default ({p.name})')
         for p in params.values():
             if p.kind not in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD) \
                     or p.default is not p.empty:
@@ -135,6 +131,11 @@ class Candidate:
 
 
 def cmp_key(rhs: Tuple[type, ...], lhs: Tuple[type, ...]):
+    """
+    check whether two type tuples are ordered in any way
+    :return: -1 if rhs is a sub-key of lhs, 1 if lhs is a sub-key of rhs, 0 if the two keys cannot be compared
+     (it is an error to sent identical keys)
+    """
     ret = 0
     for r, l in zip(rhs, lhs):
         if r is l:
@@ -152,10 +153,15 @@ def cmp_key(rhs: Tuple[type, ...], lhs: Tuple[type, ...]):
     return ret
 
 
-def get_least_key_index(keys: List[Candidate]):
-    if len(keys) < 2:
+def get_least_key_index(candidates: Collection[Candidate]):
+    """
+    :param candidates: a collection of candidates
+    :return: the index of the candidate with a least-key from among the candidates, or -1 if none exists
+    """
+    # todo test
+    if len(candidates) < 2:
         return -1
-    i = iter(keys)
+    i = iter(candidates)
     ret = next(i)
     ret_ind = 0
     for ind, k in enumerate(i, 1):

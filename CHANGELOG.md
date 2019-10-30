@@ -8,6 +8,7 @@
 * RawNotImplemented
 * wrote the readme
 * added type handling for None, Any, ..., and NotImplemented
+* allowed kwargs in MultiDispatch
 ### removed
 * got rid of the priority alias, just number now
 
