@@ -3,7 +3,7 @@ from itertools import chain
 from numbers import Number
 from typing import NamedTuple, Callable, List, Union
 
-from dyndis.candidate import Candidate
+from dyndis.candidate import Candidate, Self
 
 
 class QueuedImplementation(NamedTuple):
@@ -18,7 +18,7 @@ class QueuedImplementation(NamedTuple):
         """
         create a set of candidates when the class is complete
         """
-        ret = Candidate.from_func(self.priority, self.func, fallback_type_hint=owner)
+        ret = Candidate.from_func(self.priority, self.func, fallback_type_hint=Self, self_type=owner)
         if self.permutations:
             ret = chain.from_iterable(r.permutations() for r in ret)
         return ret

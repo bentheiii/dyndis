@@ -1,6 +1,10 @@
 # dyndis changelog
 
-## 0.0.2: unreleased
+## 0.0.3: unreleased
+### added
+* the Self type
+
+## 0.0.2: 2019-10-31
 ### added
 * trie improved candidate lookup
 * added additional rule for least-key exclusion

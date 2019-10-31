@@ -1,7 +1,7 @@
 from typing import Union
 from unittest import TestCase
 
-from dyndis import MultiDispatch
+from dyndis import MultiDispatch, Self
 
 
 class ExampleTests(TestCase):
@@ -74,3 +74,19 @@ class ExampleTests(TestCase):
         b = B()
         self.assertEqual(a + b, 'A+B/B+A')
         self.assertEqual(b + a, 'A+B/B+A')
+
+    def test_self(self):
+        foo = MultiDispatch('foo')
+
+        class A:
+            @foo.implementor()
+            def _0(self, other: bool):
+                return "bool"
+
+            @foo.implementor()
+            def _1(self, other: Union[Self, str]):
+                return "A or str"
+
+        a = A()
+        self.assertEqual(foo(a, False), "bool")
+        self.assertEqual(foo(a, a), "A or str")

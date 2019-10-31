@@ -1,12 +1,15 @@
 from inspect import signature, Parameter
 from itertools import chain, product, permutations
-from typing import Union, Callable, get_type_hints, Any, Tuple, Collection
+from typing import Union, Callable, get_type_hints, Any, Tuple, Collection, TypeVar
+
+Self = TypeVar('Self')
 
 
-def to_type_iter(t: Union[type, None]):
+def to_type_iter(t: Union[type, None], self_type):
     """
     Convert a type hint to an iteration of concrete types
     :param t: the type hint
+    :param self_type: the type to substitute when encountering Self
     :return: a tuple of concrete types
     can handle:
     * types
@@ -18,13 +21,17 @@ def to_type_iter(t: Union[type, None]):
     if isinstance(t, type):
         return t,
     if t is Any:
-        return to_type_iter(object)
+        return to_type_iter(object, self_type)
+    if t is Self:
+        if self_type is _missing:
+            raise ValueError('Self cannot be used as a type hint outside of Implementor')
+        return to_type_iter(self_type, self_type)
     if t in (..., NotImplemented, None):
-        return to_type_iter(type(t))
+        return to_type_iter(type(t), self_type)
     if getattr(t, '__origin__', None) is Union:
-        return tuple(chain.from_iterable(to_type_iter(a) for a in t.__args__))
+        return tuple(chain.from_iterable(to_type_iter(a, self_type) for a in t.__args__))
     if isinstance(getattr(t, '__origin__', None), type) and not t.__args__:
-        return to_type_iter(t.__origin__)
+        return to_type_iter(t.__origin__, self_type)
     raise TypeError(f'type annotation {t} is not a type, give it a default to ignore it from the candidate list')
 
 
@@ -49,7 +56,7 @@ class Candidate:
         self.__doc__ = getattr(func, '__doc__', None)
 
     @classmethod
-    def from_func(cls, priority, func, fallback_type_hint=_missing):
+    def from_func(cls, priority, func, fallback_type_hint=_missing, self_type=_missing):
         """
         create a list of candidates from function using the function's type hints. ignores all parameters with default
         values, as well as variadic parameters or keyword-only parameters
@@ -72,7 +79,7 @@ class Candidate:
             t = type_hints.get(p.name, fallback_type_hint)
             if t is _missing:
                 raise KeyError(p.name)
-            i = to_type_iter(t)
+            i = to_type_iter(t, self_type)
             type_iters.append(i)
         type_lists = product(*type_iters)
         return [cls(tuple(types), func, priority) for types in type_lists]

@@ -89,6 +89,28 @@ a + base  # A+Base
 a + a  # A+A
 b + a  # B+A
 ```
+
+In addition, implementor methods can also use the `Self` object to represent the containing class in more powerful manners.
+
+```python
+from typing import Union
+from dyndis import Self, MultiDispatch
+
+foo = MultiDispatch('foo')
+
+class A:
+    @foo.implementor()
+    def foo(self, other: bool):
+        return "bool"
+    @foo.implementor()
+    def foo(self, other: Union[Self, str]):
+        return "A or str"
+
+a = A()
+a.foo(False)  # "bool"
+a.foo(a)  # "A or str"
+```
+
 ## Symmetric Candidates
 In some cases, we will have multiple candidates that only differ by the order of the parameters (for example, addition is usually symmetrical). For this, we can make use of the `symmetric` parameter available both in `add_func` and `implementor` methods. Setting this parameter to `True` will also add virtual candidates of all the permutations of the argument types.
 ```python
