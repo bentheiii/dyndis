@@ -71,6 +71,7 @@ class CachedSearch:
     def advance(self) -> Iterable[List[Candidate]]:
         """
         advance the search into the next layer, caching the result
+
         :return: the newly added candidates of this layer
         """
         ret = SortedDict()
@@ -87,6 +88,7 @@ class CachedSearch:
                                results: SortedDict[Number, List[Candidate]], nexts: List[Tuple[int, CandTrie]]):
         """
         advance the search by looking for candidates with at least one mismatch
+
         :param current_trie: the trie to conduct the search in
         :param current_depth: the current depth of the trie
         :param results: a list of candidates that match
@@ -105,6 +107,7 @@ class CachedSearch:
                        results: SortedDict[Number, List[Candidate]], nexts: List[Tuple[int, CandTrie]]):
         """
         advance the search by looking for candidates without any mismatches
+
         :param current_trie: the trie to conduct the search in
         :param current_depth: the current depth of the trie
         :param results: a list of candidates that match
@@ -145,6 +148,7 @@ class MultiDispatch:
     def _clean_cache(self, sizes: Iterable[int]):
         """
         clear the candidate cache for all type tuples of the sizes specified
+
         :param sizes: the sizes for which to clear to cache
         """
         for size in sizes:
@@ -152,8 +156,9 @@ class MultiDispatch:
 
     def _add_candidate(self, candidate: Candidate, clean_cache=True):
         """
-        Add a single candidate to the multidispatch. If the multidispatch has no set name or doc,
-         the name or doc of the candidate will be used (if available)
+        Add a single candidate to the multidispatch. If the multidispatch has no set name or doc, the name or doc of
+        the candidate will be used (if available)
+
         :param candidate: the candidate to add
         :param clean_cache: whether to clean the relevant cache
         """
@@ -174,8 +179,8 @@ class MultiDispatch:
 
     def add_candidates(self, candidates: Iterable[Candidate]):
         """
-        Add a collection of candiates to the multidispatch. If the multidispatch has no set name or doc,
-         the name or doc of the first candidate with the relevant attributes will be used.
+        Add a collection of candiates to the multidispatch. If the multidispatch has no set name or doc, the name or doc of the first candidate with the relevant attributes will be used.
+
         :param candidates: an iterable of candidates to be added.
         """
         clean_sizes = set()
@@ -187,7 +192,8 @@ class MultiDispatch:
 
     def add_func(self, priority=0, symmetric=False, func=None):
         """
-        Adds candidates to a multidispatch generated from a function, usable as a
+        Adds candidates to a multidispatch generated from a function, usable as a decorator
+
         :param priority: the priority of the candidates.
         :param symmetric: if set to true, the permutations of all the candidates are added as well
         :param func: the function to used
@@ -203,7 +209,8 @@ class MultiDispatch:
     def _yield_candidates(self, types):
         """
         yield all the relevant candidates for a type tuple, sorted first by number of upcasts required (ascending),
-         and second by priority (descending)
+        and second by priority (descending)
+
         :param types: the type tuple to get candidates for
         """
         sub_cache = self.cache.get(len(types))
@@ -223,8 +230,9 @@ class MultiDispatch:
 
     def get(self, args, kwargs, default=None):
         """
-        call the multidispatch with args as arguments, attempts all the appropriate candidate until
-         one returns a non-NotImplemted value. If all the candidates are exhausted, returns default.
+        call the multidispatch with args as arguments, attempts all the appropriate candidate until one returns a
+        non-NotImplemted value. If all the candidates are exhausted, returns default.
+
         :param args: the arguments for the multidispatch
         :param kwargs: keyword arguments forwarded directly to any attempted candidate
         :param default: the value to return if all candidates are exhausted

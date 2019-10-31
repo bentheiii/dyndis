@@ -51,7 +51,7 @@ Considering all these candidates for every lookup gets quite slow and encumberin
 * If a candidate has positional parameters with a default value, these parameters are ignored for the purpose of the candidate's parameter types. When called from a `MultiDispatch`, the parameter's values will always be the default.
 * If a candidate has a variadic positional parameter, it is ignored. When called from a `MultiDispatch`, its value will always be `()`.
 * If a candidate has keyword-only parameters, the parameter will not be considered for candidate types, it must either have a default value or be set when the `MultiDispatch` is called.
-* If a candidate has a variadic keyword parameter, it is ignored. When called from a `MultiDispatch`, its value will always be `{}`.
+* If a candidate has a variadic keyword parameter, it is ignored. When called from a `MultiDispatch`, its value will be according to the (type-ignored) keyword arguments.
 
 In general, when a `MultiDispatch` is called with keyword arguments, those arguments are not considered for candidate resolution and are sent to each attempted candidate as-is.
 ## Implementors

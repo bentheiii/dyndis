@@ -1,6 +1,6 @@
 from inspect import signature, Parameter
 from itertools import chain, product, permutations
-from typing import Union, Callable, get_type_hints, Optional, Any, Tuple, Collection
+from typing import Union, Callable, get_type_hints, Any, Tuple, Collection
 
 
 def to_type_iter(t: Union[type, None]):
@@ -45,16 +45,20 @@ class Candidate:
         self.types = types
         self.func = func
         self.priority = priority
+        self.__name__ = getattr(func, '__name__', None)
+        self.__doc__ = getattr(func, '__doc__', None)
 
     @classmethod
     def from_func(cls, priority, func, fallback_type_hint=_missing):
         """
-        create a list of candidates from function using the function's type hints.
+        create a list of candidates from function using the function's type hints. ignores all parameters with default
+        values, as well as variadic parameters or keyword-only parameters
+
         :param priority: the priority of the candidate
         :param func: the function to use
         :param fallback_type_hint: the default type hint to use for parameters with missing hints
-        this function ignores all parameters with default values, as well as variadic parameters
-         or keyword-only parameters
+         this function
+
         :return: a list of candidates generated from the function
         """
         type_hints = get_type_hints(func)
@@ -79,9 +83,11 @@ class Candidate:
     def permutations(self, first_priority_offset=0.5):
         """
         create a list of candidates from a single candidate, such that they all permutations
-         of the candidate's types will be accepted. Useful for symmetric functions.
+        of the candidate's types will be accepted. Useful for symmetric functions.
+
         :param first_priority_offset: the priority increase to give the first output of the list,
          to avoid priority collisions
+
         :return: a list of equivalent candidates, differing only by the type order
         """
         if not self.types:
@@ -120,14 +126,6 @@ class Candidate:
                 Candidate(t, func, priority)
             )
         return ret
-
-    @property
-    def __name__(self) -> Optional[str]:
-        return getattr(self.func, '__name__', None)
-
-    @property
-    def __doc__(self) -> Optional[str]:
-        return getattr(self.func, '__doc__', None)
 
 
 def cmp_key(rhs: Tuple[type, ...], lhs: Tuple[type, ...]):
