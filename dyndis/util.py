@@ -19,4 +19,14 @@ class RawReturnValue(NamedTuple):
 
 class AmbiguityError(RuntimeError):
     """An error indicating that a multidispatch had to decide between candidates of equal precedence"""
-    pass
+
+    def __init__(self, candidates, types):
+        super().__init__(f'multiple candidates of equal precedence: {candidates} for key <' + ", ".join(
+            t.__name__ for t in types) + ">")
+
+
+class NoCandidateError(TypeError):
+    """An error indicating that a multidispatch has no applicable candidates"""
+
+    def __init__(self, args):
+        super().__init__('no valid candidates for argument types <' + ", ".join(type(a).__name__ for a in args) + '>')

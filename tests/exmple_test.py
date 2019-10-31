@@ -27,7 +27,7 @@ class ExampleTests(TestCase):
     def test_implementor(self):
         class Base:
             add = MultiDispatch()
-            __add__ = add.op  # MultiDispatch.op returns a delegate descriptor that acts as an operator
+            __add__ = add.op()  # MultiDispatch.op() returns a delegate descriptor that acts as an operator
 
         class A(Base):
             @Base.add.implementor()
@@ -60,7 +60,7 @@ class ExampleTests(TestCase):
     def test_symmetric(self):
         class Base:
             add = MultiDispatch()
-            __add__ = add.op  # MultiDispatch.op returns a delegate descriptor that acts as an operator
+            __add__ = add.op()  # MultiDispatch.op() returns a delegate descriptor that acts as an operator
 
         class A(Base):
             ...

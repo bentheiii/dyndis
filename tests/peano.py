@@ -12,12 +12,12 @@ mod = MultiDispatch()
 
 
 class Number(ABC):
-    __add__ = add.op
-    __mul__ = mul.op
-    __sub__ = sub.op
-    __truediv__ = div.op
-    __mod__ = mod.op
-    __lt__ = lt.op
+    __add__ = add.op()
+    __mul__ = mul.op()
+    __sub__ = sub.op()
+    __truediv__ = div.op()
+    __mod__ = mod.op()
+    __lt__ = lt.op()
 
     def __abs__(self):
         if self < neutral:

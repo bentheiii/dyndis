@@ -8,9 +8,10 @@ from typing import Dict, Tuple, List, Callable, Union, Optional, Iterable
 from sortedcontainers import SortedDict
 
 from dyndis.candidate import Candidate, get_least_key_index
+from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod
 from dyndis.implementor import Implementor
 from dyndis.trie import Trie
-from dyndis.util import RawReturnValue, AmbiguityError
+from dyndis.util import RawReturnValue, AmbiguityError, NoCandidateError
 
 CandTrie = Trie[type, Dict[Number, Candidate]]
 
@@ -224,8 +225,7 @@ class MultiDispatch:
 
         for layer in cache:
             if len(layer) != 1:
-                raise AmbiguityError(f'multiple candidates of equal rank and priority: {layer} for key <'
-                                     + ", ".join(t.__name__ for t in types) + ">")
+                raise AmbiguityError(layer, types)
             yield layer[0]
 
     def get(self, args, kwargs, default=None):
@@ -250,18 +250,29 @@ class MultiDispatch:
         """
         ret = self.get(args, kwargs, default=EMPTY)
         if ret is EMPTY:
-            raise NotImplementedError(
-                'no valid candidates for argument types <' + ", ".join(type(a).__name__ for a in args) + '>'
-            )
+            raise NoCandidateError(args)
         return ret
 
-    @property
     def op(self):
         """
         :return: an adapter for the multidispatch to be used as an adapter, returning NotImplemented if no candidates match,
          and setting the multidispatch's name if necessary
         """
         return MultiDispatchOp(self)
+
+    def method(self):
+        """
+        :return: an adapter for the multidispatch to be used as a method, raising error if no candidates match,
+         and setting the multidispatch's name if necessary
+        """
+        return MultiDispatchMethod(self)
+
+    def staticmethod(self):
+        """
+        :return: an adapter for the multidispatch to be used as a static method, raising error if no candidates match,
+         and setting the multidispatch's name if necessary
+        """
+        return MultiDispatchStaticMethod(self)
 
     def implementor(self, *args, **kwargs) -> Union[Callable[[Callable], 'Implementor'], 'Implementor']:
         """
@@ -273,24 +284,3 @@ class MultiDispatch:
         if self.__name__:
             return f'<MultiDispatch {self.__name__}>'
         return super().__str__()
-
-
-class MultiDispatchOp:
-    """
-    An operator adapter for a MultiDispatch
-    """
-
-    def __init__(self, md: MultiDispatch):
-        self.md = md
-
-    def __set_name__(self, owner, name):
-        if not self.md.__name__:
-            self.md.__name__ = name
-
-    def __get__(self, instance, owner):
-        if instance:
-            return partial(self.__call__, instance)
-        return self
-
-    def __call__(self, *args, **kwargs):
-        return self.md.get(args, kwargs, default=NotImplemented)

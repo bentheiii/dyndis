@@ -3,6 +3,8 @@
 ## 0.0.3: unreleased
 ### added
 * the Self type
+* changed op to a regular function
+* added method, and staticmethod adapters
 
 ## 0.0.2: 2019-10-31
 ### added
