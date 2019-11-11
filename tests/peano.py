@@ -3,12 +3,12 @@ from typing import Dict, Any, Tuple, Union
 
 from dyndis import MultiDispatch
 
-add = MultiDispatch()
-mul = MultiDispatch()
-sub = MultiDispatch()
-div = MultiDispatch()
-lt = MultiDispatch()
-mod = MultiDispatch()
+add = MultiDispatch('add')
+mul = MultiDispatch('mul')
+sub = MultiDispatch('sub')
+div = MultiDispatch('div')
+lt = MultiDispatch('lt')
+mod = MultiDispatch('mod')
 
 
 class Number(ABC):

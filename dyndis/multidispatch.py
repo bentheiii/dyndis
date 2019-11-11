@@ -98,11 +98,22 @@ class CachedSearch:
         if current_depth == len(self.query):
             return
         curr_key = self.query[current_depth]
-        for child_type, child in current_trie.children.items():
-            if child_type is curr_key:
+        mro = curr_key.mro()
+        children = current_trie.children
+        if len(children) < len(mro):
+            for child_type, child in children.items():
+                if child_type is curr_key:
+                    self.advance_search_inexact(child, current_depth + 1, results, nexts)
+                elif issubclass(curr_key, child_type):
+                    self.advance_search(child, current_depth + 1, results, nexts)
+        else:
+            child = children.get(curr_key)
+            if child:
                 self.advance_search_inexact(child, current_depth + 1, results, nexts)
-            elif issubclass(curr_key, child_type):
-                self.advance_search(child, current_depth + 1, results, nexts)
+            for super_cls in mro:
+                child = children.get(super_cls)
+                if child:
+                    self.advance_search(child, current_depth + 1, results, nexts)
 
     def advance_search(self, current_trie: CandTrie, current_depth: int,
                        results: SortedDict[Number, List[Candidate]], nexts: List[Tuple[int, CandTrie]]):

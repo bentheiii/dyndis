@@ -1,4 +1,7 @@
 # dyndis changelog
+## 0.0.4: unreleased
+### enhanced
+* when looking for upcast matches, there is an option to loop through the class's MRO if it's faster.
 
 ## 0.0.3: 2019-11-11
 ### fixed
