@@ -1,6 +1,6 @@
 # dyndis changelog
 
-## 0.0.3: unreleased
+## 0.0.3: 2019-11-11
 ### fixed
 * error message for multiple candidates
 ### changed
