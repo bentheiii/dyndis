@@ -1,6 +1,10 @@
 # dyndis changelog
 
 ## 0.0.3: unreleased
+### fixed
+* error message for multiple candidates
+### changed
+* setting an implementor with a different name than the multidispatch will issue a warning
 ### added
 * the Self type
 * changed op to a regular function

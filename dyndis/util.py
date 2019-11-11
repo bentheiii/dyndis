@@ -21,8 +21,8 @@ class AmbiguityError(RuntimeError):
     """An error indicating that a multidispatch had to decide between candidates of equal precedence"""
 
     def __init__(self, candidates, types):
-        super().__init__(f'multiple candidates of equal precedence: {candidates} for key <' + ", ".join(
-            t.__name__ for t in types) + ">")
+        cands = "[" + ", ".join(str(c) for c in candidates) + "]"
+        super().__init__(f'multiple candidates of equal precedence: {cands} for key <' + ", ".join(t.__name__ for t in types) + ">")
 
 
 class NoCandidateError(TypeError):
