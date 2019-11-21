@@ -1,4 +1,15 @@
-from typing import Any, NamedTuple, TypeVar
+from functools import lru_cache
+from typing import Any, NamedTuple, TypeVar, Optional, Union
+
+try:
+    from typing import get_origin, get_args
+except ImportError:
+    def get_origin(tp):
+        return getattr(tp, '__origin__', None)
+
+
+    def get_args(tp):
+        return getattr(tp, '__args__', ())
 
 
 class RawReturnValue(NamedTuple):
@@ -47,17 +58,57 @@ def similar(i):
     return ret
 
 
-def passes_typevar_bounds(cls, type_var: TypeVar):
-    if type_var.__constraints__:
-        return any(issubclass_tv(cls, c) for c in type_var.__constraints__)
-    elif type_var.__bound__:
-        return issubclass_tv(cls, type_var.__bound__)
-    return True
+@lru_cache
+def constrain_type(cls, scls: Union[type, TypeVar]) -> Optional[type]:
+    if scls is Any:
+        return cls
+    elif isinstance(scls, TypeVar):
+        if scls.__constraints__:
+            ret = None
+            for c in scls.__constraints__:
+                if not issubclass(cls, c):
+                    continue
+                if not ret or issubclass(c, ret):
+                    ret = c
+            return ret
+        elif scls.__bound__:
+            return constrain_type(cls, scls.__bound__)
+        return cls
+    return cls if issubclass(cls, scls) else None
 
 
 def issubclass_tv(cls, scls):
-    if scls is Any:
-        return True
-    if isinstance(scls, TypeVar):
-        return passes_typevar_bounds(cls, scls)
-    return issubclass(cls, scls)
+    return constrain_type(cls, scls) is not None
+
+
+class SubPriority:
+    @classmethod
+    def make(cls, x, weight=-1):
+        if weight == 0:
+            return x
+        if isinstance(x, cls):
+            return cls(x.original, x.weight + weight)
+        return cls(x, weight)
+
+    def __init__(self, original, weight):
+        self.original = original
+        self.weight = weight
+        self.key = (self.original, self.weight)
+
+    @classmethod
+    def to_key(cls, x):
+        if isinstance(x, cls):
+            return x.key
+        return x, 0
+
+    def __lt__(self, other):
+        return self.key < self.to_key(other)
+
+    def __le__(self, other):
+        return self.key <= self.to_key(other)
+
+    def __gt__(self, other):
+        return self.key > self.to_key(other)
+
+    def __ge__(self, other):
+        return self.key >= self.to_key(other)

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from functools import partial
-from itertools import chain, islice
+from itertools import chain
 from numbers import Number
-from typing import Dict, Tuple, List, Callable, Union, Optional, Iterable, TypeVar, Any
+from typing import Dict, Tuple, List, Callable, Union, Iterable, TypeVar, Any
 
 from sortedcontainers import SortedDict
 
@@ -11,7 +11,7 @@ from dyndis.candidate import Candidate, get_least_key_index
 from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod
 from dyndis.implementor import Implementor
 from dyndis.trie import Trie
-from dyndis.util import RawReturnValue, AmbiguityError, NoCandidateError, passes_typevar_bounds
+from dyndis.util import RawReturnValue, AmbiguityError, NoCandidateError, constrain_type
 
 CandTrie = Trie[type, Dict[Number, Candidate]]
 
@@ -114,16 +114,19 @@ class CachedSearch:
         for child_type, child in children.items():
             if isinstance(child_type, TypeVar):
                 assigned_type = var_dict.get(child_type)
+                next_var_dict = var_dict
                 if assigned_type is None:
-                    if not passes_typevar_bounds(curr_key, child_type):
+                    constrained = constrain_type(curr_key, child_type)
+                    if not constrained:
                         continue
-                    next_var_dict = dict(var_dict)
-                    next_var_dict[child_type] = curr_key
+                    next_var_dict = dict(next_var_dict)
+                    assigned_type = next_var_dict[child_type] = constrained
+
+                if assigned_type is curr_key:
                     self.advance_search(child, current_depth + 1, results, nexts, next_var_dict)
-                elif assigned_type is curr_key:
-                    self.advance_search(child, current_depth + 1, results, nexts, var_dict)
                 elif issubclass(curr_key, assigned_type):
-                    nexts.append((current_depth+1, child, var_dict))
+                    nexts.append((current_depth+1, child, next_var_dict))
+
             elif issubclass(curr_key, child_type):
                 nexts.append((current_depth+1, child, var_dict))
 

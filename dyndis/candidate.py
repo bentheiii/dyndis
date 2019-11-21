@@ -1,21 +1,22 @@
 from inspect import signature, Parameter
 from itertools import chain, product, permutations
-from typing import Union, Callable, get_type_hints, Any, Tuple, Collection, TypeVar, Dict, Type, Optional
+from typing import Union, Callable, get_type_hints, Any, Tuple, Collection, TypeVar, Dict, Type, Optional, ByteString
 from warnings import warn
 
-from dyndis.util import similar, issubclass_tv
+from dyndis.util import similar, issubclass_tv, SubPriority, get_origin, get_args
+
+try:
+    from typing import Literal
+except ImportError:
+    Literal = None
 
 Self = TypeVar('Self')
 
 type_aliases: Dict[type, Tuple[type, ...]] = {
     float: (float, int),
-    complex: (float, int, complex)
+    complex: (float, int, complex),
+    bytes: (ByteString,)
 }
-
-
-def is_valid_args(args):
-    return not args or \
-           all(a in (Any, object) for a in args)
 
 
 def to_type_iter(t: Union[type, None], self_type):
@@ -30,7 +31,10 @@ def to_type_iter(t: Union[type, None], self_type):
     * the typing.Any object (equivalent to object)
     * the dyndis.Self object
     * any non-specific typing abstract class (Sized, Iterable, ect...)
+    * Type variables
     * typing.Union
+    3.8 only:
+    * Literals of singleton types
     """
     if isinstance(t, type):
         alias = type_aliases.get(t, None)
@@ -47,12 +51,18 @@ def to_type_iter(t: Union[type, None], self_type):
         if t.__contravariant__ or t.__covariant__:
             raise ValueError(f'cannot use covariant or contravariant type hint {t}')
         return t,
-    if getattr(t, '__origin__', None) is Union:
-        return tuple(chain.from_iterable(to_type_iter(a, self_type) for a in t.__args__))
-    if isinstance(getattr(t, '__origin__', None), type) and is_valid_args(t.__args__):
-        return to_type_iter(t.__origin__, self_type)
-    if getattr(t, '__origin__', None) is Callable.__origin__ and t.__args__[0] is ... and is_valid_args(t.__args__[1:]):
-        return to_type_iter(Callable, self_type)
+
+    origin = get_origin(t)
+    args = get_args(t)
+
+    if Literal and origin is Literal:
+        if any(a not in (None, ..., NotImplemented) for a in args):
+            raise TypeError('only Literal[singleton] can be used in type hint')
+        return chain.from_iterable(to_type_iter(a, self_type) for a in args)
+    if origin is Union:
+        return chain.from_iterable(to_type_iter(a, self_type) for a in t.__args__)
+    if isinstance(origin, type) and not args:
+        return to_type_iter(origin, self_type)
     raise TypeError(f'type annotation {t} is not a type, give it a default to ignore it from the candidate list')
 
 
@@ -92,11 +102,11 @@ class Candidate:
         """
         if priority_adjust is ...:
             def priority_adjust(original, types):
-                t_var_count = sum(isinstance(t, TypeVar) for t in types)
-                if t_var_count:
-                    original -= t_var_count / (t_var_count + 1)
+                # reduce the priority by the number of distinct type variables
+                t_var_count = len(set(t for t in types if isinstance(t, TypeVar)))
+                original = SubPriority.make(original, -t_var_count)
                 return original
-        elif priority_adjust is None:
+        if priority_adjust is None:
             def priority_adjust(original, types):
                 return original
 
@@ -133,13 +143,10 @@ class Candidate:
     def __str__(self):
         return (self.__name__ or 'unnamed candidate') + '<' + ', '.join(n.__name__ for n in self.types) + '>'
 
-    def permutations(self, first_priority_offset=0.5):
+    def permutations(self):
         """
         create a list of candidates from a single candidate, such that they all permutations
         of the candidate's types will be accepted. Useful for symmetric functions.
-
-        :param first_priority_offset: the priority increase to give the first output of the list,
-         to avoid priority collisions
 
         :return: a list of equivalent candidates, differing only by the type order
         """
@@ -158,7 +165,7 @@ class Candidate:
                 if t in seen:
                     continue
                 seen.add(t)
-                priority = self.priority + first_priority_offset
+                priority = self.priority
                 first = False
             else:
                 t = tuple(self.types[i] for i in perm)
@@ -174,7 +181,7 @@ class Candidate:
                 func = ns['func']
                 if name:
                     func.__name__ = name
-                priority = self.priority
+                priority = SubPriority.make(self.priority)
             ret.append(
                 Candidate(t, func, priority)
             )

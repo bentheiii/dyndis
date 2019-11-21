@@ -39,7 +39,7 @@ All candidates for parameters of types <T0, T1, T2..., TN> are ordered as follow
     1. <object, Sequence, Sequence>, since it requires 3 upcasts
   
    Note that upcasting does not consider how far the hierarchy the casting is, so a candidate <object, object, object> will have the same rank as <object, Sequence, Sequence> (but see below).
- * Then, all candidates of equal rank are sorted (descending) by their priority. All decorators have a parameter to set a priority for candidates, by default the priority is 0. It is recommended to use whole numbers for priority as non-whole numbers are use to internally organize candidates (such as with symmetric candidates, below).
+ * Then, all candidates of equal rank are sorted (descending) by their priority. All decorators have a parameter to set a priority for candidates, by default the priority is 0. Some automatic processes can change a candidate's priority over other candidates of equal priority (such as with symmetric candidates, below).
  * Finally, of a set of candidates of equal rank and priority, if any candidate's parameter types are subclasses of all other candidates in the set, that candidate has priority. So that <int,object> will be considered before <Number, object> even for parameter type <bool, str>
  
 If two candidates have equal rank and priority, and neither is a strict sub-key of the other, an exception (of type `dyndis.AmbiguityError`) is raised.
@@ -134,27 +134,29 @@ b = B()
 a + b  # A+B/B+A
 b + a  # A+B/B+A
 ```
-In any symmetric candidate set, one is given a larger priority by 0.5.
+All permutations are considered to have a priority lower than the original priority.
 
-One should take take when making symmetric candidates, as it can create an inordinate number of candidates (super-exponential to the number of parameters).
+One should take care when making symmetric candidates, as it can create an inordinate number of candidates (super-exponential to the number of parameters).
 ## Special Type Annotations
 type annotations can be of any type, or among any of these special values
 * `dyndis.Self`: used in implementors (see above), and is an error to use outside of them
 * `typing.Union`: accepts parameters of any of the enclosed type
 * `typing.Optional`: accepts the enclosed type or `None`
 * `typing.Any`: is considered a parent match (and not an exact match) for any type, including `object`
-* Any of typing's aliases and abstract classes such as `typing.List` or `typing.Sized`: equivelant to their origin type
+* Any of typing's aliases and abstract classes such as `typing.List` or `typing.Sized`: equivalent to their origin type
 * `typing.TypeVar`: see below
 * `None`, `...`, `NotImplemented`: equivalent to their types
+* python 3.8 only: `typing.Literal` for singletons (`None`, `...`, `NotImplemented`): equivalent to their enclosed value
 
 In addition, the following types are automatically converted values:
 * `float` -> `Union[int, float]`
 * `complex` -> `Union[int, float, complex]`
+* `bytes` -> `typing.ByteString`
 ## `TypeVar` annotations
-Parameters can also be annotated with `typing.TypeVar`s. These variables bind greedily as they are encountered, and count as perfect matched upon first binding. After first binding, they are treated as the bound type for all respects.
+Parameters can also be annotated with `typing.TypeVar`s. These variables bind greedily as they are encountered, and count as matched upon first binding. After first binding, they are treated as the bound type (or the lowest constraint of the `TypeVar`) for all respects.
 
 ```python
-from typing import Union, TypeVar, Any
+from typing import TypeVar, Any
 
 from dyndis import MultiDispatch
 
@@ -172,6 +174,7 @@ foo(1, 1)  # <=
 foo(1, True)  # <=
 foo(2, 'a')  # </=
 foo(object(), object())  # <=
+# type variables bind greedily, meaning their exact value will be equal to the first type they encounter
 foo(False, 2)  # </=
 ```
 
