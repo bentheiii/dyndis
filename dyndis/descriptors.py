@@ -1,6 +1,6 @@
 from functools import partial
 
-from dyndis.util import NoCandidateError
+from dyndis.exceptions import NoCandidateError
 
 
 class MultiDispatchDelegate:

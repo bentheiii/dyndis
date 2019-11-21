@@ -212,7 +212,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         for c in self._children.values():
             yield from c.values()
 
-    def get(self, k, default=None)->V:
+    def get(self, k, default=None) -> V:
         return self._get(iter(k), default)
 
     def __eq__(self, other):

@@ -3,7 +3,7 @@ from itertools import chain, product, permutations
 from typing import Union, Callable, get_type_hints, Any, Tuple, Collection, TypeVar, Dict, Type, Optional, ByteString
 from warnings import warn
 
-from dyndis.util import similar, issubclass_tv, SubPriority, get_origin, get_args
+from dyndis.util import similar, issubclass_tv, SubPriority, get_origin, get_args, cmp_type_hint
 
 try:
     from typing import Literal
@@ -186,34 +186,6 @@ class Candidate:
                 Candidate(t, func, priority)
             )
         return ret
-
-
-def cmp_type_hint(r: Union[Type, TypeVar], l: Union[Type, TypeVar]):
-    """
-    can return 4 values:
-    0 if they are identical
-    -1 if r <= l
-    1 if l <= r
-    None if they cannot be compared
-    """
-    if isinstance(r, TypeVar):
-        if r.__bound__:
-            return cmp_type_hint(r.__bound__, l)
-        elif r.__constraints__:
-            return similar(cmp_type_hint(c, l) for c in r.__constraints__)
-        else:
-            return cmp_type_hint(object, l)
-    elif isinstance(l, TypeVar):
-        i_cth = cmp_type_hint(l, r)
-        return i_cth and -i_cth
-    else:  # both are types
-        if r is l:
-            return 0
-        elif issubclass(r, l):
-            return -1
-        elif issubclass(l, r):
-            return 1
-        return None
 
 
 def cmp_key(rhs: Tuple[type, ...], lhs: Tuple[type, ...]):

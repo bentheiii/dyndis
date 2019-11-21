@@ -1,6 +1,8 @@
 from functools import lru_cache
 from typing import Any, NamedTuple, TypeVar, Optional, Union
 
+from dyndis.exceptions import AmbiguousBindingError
+
 try:
     from typing import get_origin, get_args
 except ImportError:
@@ -28,22 +30,6 @@ class RawReturnValue(NamedTuple):
         return x
 
 
-class AmbiguityError(RuntimeError):
-    """An error indicating that a multidispatch had to decide between candidates of equal precedence"""
-
-    def __init__(self, candidates, types):
-        cands = "[" + ", ".join(str(c) for c in candidates) + "]"
-        super().__init__(
-            f'multiple candidates of equal precedence: {cands} for key <' + ", ".join(t.__name__ for t in types) + ">")
-
-
-class NoCandidateError(TypeError):
-    """An error indicating that a multidispatch has no applicable candidates"""
-
-    def __init__(self, args):
-        super().__init__('no valid candidates for argument types <' + ", ".join(type(a).__name__ for a in args) + '>')
-
-
 def similar(i):
     ret = 0
     for i in i:
@@ -64,13 +50,15 @@ def constrain_type(cls, scls: Union[type, TypeVar]) -> Optional[type]:
         return cls
     elif isinstance(scls, TypeVar):
         if scls.__constraints__:
-            ret = None
-            for c in scls.__constraints__:
-                if not issubclass(cls, c):
-                    continue
-                if not ret or issubclass(c, ret):
-                    ret = c
-            return ret
+            candidates = [c for c in scls.__constraints__ if issubclass(cls, c)]
+            if not candidates:
+                return None
+            minimal_candidates = [
+                cand for cand in candidates if all(issubclass(cand, c) for c in candidates)
+            ]
+            if len(minimal_candidates) != 1:
+                raise AmbiguousBindingError(scls, cls, minimal_candidates)
+            return minimal_candidates[0]
         elif scls.__bound__:
             return constrain_type(cls, scls.__bound__)
         return cls
@@ -112,3 +100,31 @@ class SubPriority:
 
     def __ge__(self, other):
         return self.key >= self.to_key(other)
+
+
+def cmp_type_hint(r: Union[type, TypeVar], l: Union[type, TypeVar]):
+    """
+    can return 4 values:
+    0 if they are identical
+    -1 if r <= l
+    1 if l <= r
+    None if they cannot be compared
+    """
+    if isinstance(r, TypeVar):
+        if r.__bound__:
+            return cmp_type_hint(r.__bound__, l)
+        elif r.__constraints__:
+            return similar(cmp_type_hint(c, l) for c in r.__constraints__)
+        else:
+            return cmp_type_hint(object, l)
+    elif isinstance(l, TypeVar):
+        i_cth = cmp_type_hint(l, r)
+        return i_cth and -i_cth
+    else:  # both are types
+        if r is l:
+            return 0
+        elif issubclass(r, l):
+            return -1
+        elif issubclass(l, r):
+            return 1
+        return None

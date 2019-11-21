@@ -9,9 +9,10 @@ from sortedcontainers import SortedDict
 
 from dyndis.candidate import Candidate, get_least_key_index
 from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod
+from dyndis.exceptions import NoCandidateError, AmbiguityError
 from dyndis.implementor import Implementor
 from dyndis.trie import Trie
-from dyndis.util import RawReturnValue, AmbiguityError, NoCandidateError, constrain_type
+from dyndis.util import RawReturnValue, constrain_type
 
 CandTrie = Trie[type, Dict[Number, Candidate]]
 

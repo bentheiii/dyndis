@@ -4,6 +4,7 @@ from unittest import TestCase
 from dyndis.candidate import Self
 
 from dyndis import MultiDispatch
+from dyndis.exceptions import AmbiguousBindingError
 
 
 class DefaultTest(TestCase):
@@ -173,3 +174,42 @@ class TypeVarTest(TestCase):
 
         self.assertEqual(foo('aaa'), 0)
         self.assertEqual(foo('aa', 'bb'), 4)
+
+    def test_uncertain_binding(self):
+        class A: pass
+
+        class B: pass
+
+        class C(A, B): pass
+
+        T = TypeVar('T', A, B)
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(x: T):
+            pass
+
+        self.assertIsNone(foo(A()))
+        self.assertIsNone(foo(B()))
+
+        with self.assertRaises(AmbiguousBindingError):
+            foo(C())
+
+    def test_uncertain_binding_solution(self):
+        class A: pass
+
+        class B: pass
+
+        class C(A, B): pass
+
+        T = TypeVar('T', A, B, C)
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(x: T):
+            pass
+
+        self.assertIsNone(foo(A()))
+        self.assertIsNone(foo(B()))
+
+        self.assertIsNone(foo(C()))
