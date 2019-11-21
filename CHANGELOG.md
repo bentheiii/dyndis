@@ -1,7 +1,14 @@
 # dyndis changelog
 ## 0.0.4: unreleased
 ### enhanced
-* when looking for upcast matches, there is an option to loop through the class's MRO if it's faster.
+* search now first looks up and rules out all children by MRO, then iterates over all remaining children with slower issubclass check
+### added
+* support for positional parameters with default values
+* support for `typing.TypeVar`
+### changed
+* `float` is now interpreted as `Union[float, int]`
+* `complex` is now interpreted as `Union[float, int, complex]`
+* `typing.Any` now longer evaluates to object, but rather is an inexact match to any type
 
 ## 0.0.3: 2019-11-11
 ### fixed

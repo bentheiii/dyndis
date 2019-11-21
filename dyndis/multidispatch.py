@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from functools import partial
-from itertools import chain
+from itertools import chain, islice
 from numbers import Number
-from typing import Dict, Tuple, List, Callable, Union, Optional, Iterable
+from typing import Dict, Tuple, List, Callable, Union, Optional, Iterable, TypeVar, Any
 
 from sortedcontainers import SortedDict
 
@@ -11,7 +11,7 @@ from dyndis.candidate import Candidate, get_least_key_index
 from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod
 from dyndis.implementor import Implementor
 from dyndis.trie import Trie
-from dyndis.util import RawReturnValue, AmbiguityError, NoCandidateError
+from dyndis.util import RawReturnValue, AmbiguityError, NoCandidateError, passes_typevar_bounds
 
 CandTrie = Trie[type, Dict[Number, Candidate]]
 
@@ -53,16 +53,13 @@ class CachedSearch:
         :param owner: the owning multidispatch
         :param key: the type tuple to use
         """
-        ex = owner.candidates.get(key)
-        if ex:
-            lay_0 = [[v] for v in reversed(ex.values())]
-        else:
-            lay_0 = []
-
-        self.sorted: List[List[Candidate]] = lay_0
-        self.next_layer: List[Tuple[int, CandTrie]] = [(0, owner.candidates)]
-        self.err: Optional[Exception] = None
         self.query = key
+
+        self.next_layer = []
+        sorted = SortedDict()
+        self.advance_search(owner.candidates, 0, sorted, self.next_layer, {})
+
+        self.sorted = process_new_layers(reversed(sorted.values()))
 
     def __iter__(self):
         yield from self.sorted
@@ -76,47 +73,19 @@ class CachedSearch:
         :return: the newly added candidates of this layer
         """
         ret = SortedDict()
-        nexts: List[Tuple[int, CandTrie]] = []
-        for (depth, n_trie) in self.next_layer:
-            self.advance_search_inexact(n_trie, depth, ret, nexts)
+        nexts: List[Tuple[int, CandTrie, Dict[TypeVar, type]]] = []
+        for (depth, n_trie, var_dict) in self.next_layer:
+            self.advance_search(n_trie, depth, ret, nexts, var_dict)
 
         self.next_layer = nexts
         new_layers = process_new_layers(reversed(ret.values()))
         self.sorted.extend(new_layers)
         return new_layers
 
-    def advance_search_inexact(self, current_trie: CandTrie, current_depth: int,
-                               results: SortedDict[Number, List[Candidate]], nexts: List[Tuple[int, CandTrie]]):
-        """
-        advance the search by looking for candidates with at least one mismatch
-
-        :param current_trie: the trie to conduct the search in
-        :param current_depth: the current depth of the trie
-        :param results: a list of candidates that match
-        :param nexts: a list of tries to search in for the next layer
-        """
-        if current_depth == len(self.query):
-            return
-        curr_key = self.query[current_depth]
-        mro = curr_key.mro()
-        children = current_trie.children
-        if len(children) < len(mro):
-            for child_type, child in children.items():
-                if child_type is curr_key:
-                    self.advance_search_inexact(child, current_depth + 1, results, nexts)
-                elif issubclass(curr_key, child_type):
-                    self.advance_search(child, current_depth + 1, results, nexts)
-        else:
-            child = children.get(curr_key)
-            if child:
-                self.advance_search_inexact(child, current_depth + 1, results, nexts)
-            for super_cls in mro:
-                child = children.get(super_cls)
-                if child:
-                    self.advance_search(child, current_depth + 1, results, nexts)
-
     def advance_search(self, current_trie: CandTrie, current_depth: int,
-                       results: SortedDict[Number, List[Candidate]], nexts: List[Tuple[int, CandTrie]]):
+                       results: SortedDict[Number, List[Candidate]],
+                       nexts: List[Tuple[int, CandTrie, Dict[TypeVar, type]]],
+                       var_dict: Dict[TypeVar, type]):
         """
         advance the search by looking for candidates without any mismatches
 
@@ -132,10 +101,31 @@ class CachedSearch:
                     add_priority(results, candidate)
             return
         curr_key = self.query[current_depth]
-        next_exact = current_trie.children.get(curr_key)
-        if next_exact:
-            self.advance_search(next_exact, current_depth + 1, results, nexts)
-        nexts.append((current_depth, current_trie))
+        children = dict(current_trie.children)
+        child = children.pop(curr_key, None)
+        if child:
+            self.advance_search(child, current_depth + 1, results, nexts, var_dict)
+        mro = curr_key.mro()
+        mro[0] = Any
+        for m in mro:
+            child = children.pop(m, None)
+            if child:
+                nexts.append((current_depth+1, child, var_dict))
+        for child_type, child in children.items():
+            if isinstance(child_type, TypeVar):
+                assigned_type = var_dict.get(child_type)
+                if assigned_type is None:
+                    if not passes_typevar_bounds(curr_key, child_type):
+                        continue
+                    next_var_dict = dict(var_dict)
+                    next_var_dict[child_type] = curr_key
+                    self.advance_search(child, current_depth + 1, results, nexts, next_var_dict)
+                elif assigned_type is curr_key:
+                    self.advance_search(child, current_depth + 1, results, nexts, var_dict)
+                elif issubclass(curr_key, assigned_type):
+                    nexts.append((current_depth+1, child, var_dict))
+            elif issubclass(curr_key, child_type):
+                nexts.append((current_depth+1, child, var_dict))
 
 
 EMPTY = object()

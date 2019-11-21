@@ -38,7 +38,7 @@ All candidates for parameters of types <T0, T1, T2..., TN> are ordered as follow
     1. <Number, tuple, Sequence>, since it requires 2 upcasts
     1. <object, Sequence, Sequence>, since it requires 3 upcasts
   
-   Note that upcasting does consider how far the hierarchy the casting is, so a candidate <object, object, object> will have the same rank as <object, Sequence, Sequence> (but see below).
+   Note that upcasting does not consider how far the hierarchy the casting is, so a candidate <object, object, object> will have the same rank as <object, Sequence, Sequence> (but see below).
  * Then, all candidates of equal rank are sorted (descending) by their priority. All decorators have a parameter to set a priority for candidates, by default the priority is 0. It is recommended to use whole numbers for priority as non-whole numbers are use to internally organize candidates (such as with symmetric candidates, below).
  * Finally, of a set of candidates of equal rank and priority, if any candidate's parameter types are subclasses of all other candidates in the set, that candidate has priority. So that <int,object> will be considered before <Number, object> even for parameter type <bool, str>
  
@@ -48,6 +48,7 @@ If two candidates have equal rank and priority, and neither is a strict sub-key 
 
 Considering all these candidates for every lookup gets quite slow and encumbering very quickly. For this reason, every `MultiDispatch` automatically caches any work done by previous calls when it comes to sorting and processing candidates. The cache maintains the laziness of the trie, and minimizes the work done at any given time.
 ## Default, Variadic, and Keyword parameters
+* If a candidate has positional parameters with a default value and a type annotation, and is not after a parameter without an annotation, it will be included as an optional value. If the value is `None`, `...`, or `NotImplemented`, it will be added to the type hint.
 * If a candidate has positional parameters with a default value, these parameters are ignored for the purpose of the candidate's parameter types. When called from a `MultiDispatch`, the parameter's values will always be the default.
 * If a candidate has a variadic positional parameter, it is ignored. When called from a `MultiDispatch`, its value will always be `()`.
 * If a candidate has keyword-only parameters, the parameter will not be considered for candidate types, it must either have a default value or be set when the `MultiDispatch` is called.
@@ -136,5 +137,44 @@ b + a  # A+B/B+A
 In any symmetric candidate set, one is given a larger priority by 0.5.
 
 One should take take when making symmetric candidates, as it can create an inordinate number of candidates (super-exponential to the number of parameters).
+## Special Type Annotations
+type annotations can be of any type, or among any of these special values
+* `dyndis.Self`: used in implementors (see above), and is an error to use outside of them
+* `typing.Union`: accepts parameters of any of the enclosed type
+* `typing.Optional`: accepts the enclosed type or `None`
+* `typing.Any`: is considered a parent match (and not an exact match) for any type, including `object`
+* Any of typing's aliases and abstract classes such as `typing.List` or `typing.Sized`: equivelant to their origin type
+* `typing.TypeVar`: see below
+* `None`, `...`, `NotImplemented`: equivalent to their types
+
+In addition, the following types are automatically converted values:
+* `float` -> `Union[int, float]`
+* `complex` -> `Union[int, float, complex]`
+## `TypeVar` annotations
+Parameters can also be annotated with `typing.TypeVar`s. These variables bind greedily as they are encountered, and count as perfect matched upon first binding. After first binding, they are treated as the bound type for all respects.
+
+```python
+from typing import Union, TypeVar, Any
+
+from dyndis import MultiDispatch
+
+T = TypeVar('T')
+foo = MultiDispatch()
+
+@foo.add_func()
+def foo(a: T, b: T):
+    return "type(b) <= type(a)"
+@foo.add_func()
+def foo(a: Any, b: Any):
+    return "type(b) </= type(a"
+
+foo(1, 1)  # <=
+foo(1, True)  # <=
+foo(2, 'a')  # </=
+foo(object(), object())  # <=
+foo(False, 2)  # </=
+```
+
+By default, candidates have their priorities adjusted so that candidates with more `TypeVar`s are ranked below candidates below.
 ## RawReturnValue
 By default, if a candidate returns `NotImplemented`, it indicates to the `MultiDispatch` that the next candidate should be tried. However, on the rare occasion when `NotImplemented` is the actual return value desired, a candidate should return `dyndis.RawNotImplemented`.
