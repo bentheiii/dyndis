@@ -1,4 +1,4 @@
-from typing import TypeVar
+from typing import TypeVar, Any
 
 from dyndis import MultiDispatch
 
@@ -18,15 +18,13 @@ T = TypeVar('T', A, B)
 
 
 @foo.add_func()
-def foo(a: T):
-    pass
-
+def foo(a: object):
+    return 'obj'
 
 @foo.add_func()
-def foo(a: C):
-    pass
+def foo(a: Any):
+    return 'any'
 
-
-foo(C())
+print(foo(A()))
 
 print(", ".join(str(c) for c in foo.candidates()))

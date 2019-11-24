@@ -20,4 +20,10 @@ class AmbiguousBindingError(RuntimeError):
     def __init__(self, typevar, subclass, unrelated_classes):
         super().__init__(f'type variable {typevar} must up-cast type {subclass} to one of its constrained types,'
                          f' but it is a subclass of multiple non-related constraints: {unrelated_classes}'
-                         f' (consider adding {subclass} as an explicit constraint in {typevar})')
+                         f' (consider adding {subclass} as an explicit constraint in {typevar},'
+                         f' or a specialized overload for {subclass})')
+
+
+class UnboundTypeVar(RuntimeError):
+    def __init__(self, typevar, unbound):
+        super().__init__(f'type variable {typevar} must be bound before {unbound}')

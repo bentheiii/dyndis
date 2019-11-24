@@ -179,5 +179,34 @@ foo(False, 2)  # </=
 ```
 
 By default, candidates have their priorities adjusted so that candidates with more `TypeVar`s are ranked below candidates below.
+
+## `UnboundDelegate`
+Advanced usage can also make use of the various `UnboundDelegate` subclasses to get attributes of types assigned to type variables, to allow for Rust-style type requirements
+
+```python
+from typing import TypeVar
+
+from dyndis import MultiDispatch, UnboundAttr
+
+class StrDict(dict):
+    I = str
+
+class MyList(list):
+    I = int
+
+T = TypeVar('T', StrDict, MyList)
+T_I = UnboundAttr(T, 'I')
+foo = MultiDispatch()
+
+@foo.add_func()
+def foo(a: T, i: T_I):
+    return a[i]
+
+d = StrDict(a=3, b=4)
+m = MyList([3,4])
+
+foo(d, 'a')  # 3
+foo(m, 1)  # 4
+``` 
 ## RawReturnValue
 By default, if a candidate returns `NotImplemented`, it indicates to the `MultiDispatch` that the next candidate should be tried. However, on the rare occasion when `NotImplemented` is the actual return value desired, a candidate should return `dyndis.RawNotImplemented`.

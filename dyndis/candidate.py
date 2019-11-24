@@ -1,9 +1,10 @@
 from inspect import signature, Parameter
 from itertools import chain, product, permutations
-from typing import Union, Callable, get_type_hints, Any, Tuple, Collection, TypeVar, Dict, Type, Optional, ByteString
+from typing import Union, Callable, get_type_hints, Any, Tuple, Collection, TypeVar, Dict, Optional, ByteString
 from warnings import warn
 
-from dyndis.util import issubclass_tv, SubPriority, get_origin, get_args, cmp_type_hint
+from dyndis.type_hints import UnboundDelegate, issubclass_tv, cmp_type_hint
+from dyndis.util import get_origin, get_args, SubPriority
 
 try:
     from typing import Literal
@@ -34,6 +35,7 @@ def to_type_iter(t: Union[type, None], self_type):
     * any non-specific typing abstract class (Sized, Iterable, ect...)
     * Type variables
     * typing.Union
+    * dyndis.UnboundDelegate object
     3.8 only:
     * Literals of singleton types
     """
@@ -51,6 +53,8 @@ def to_type_iter(t: Union[type, None], self_type):
     if isinstance(t, TypeVar):
         if t.__contravariant__ or t.__covariant__:
             raise ValueError(f'cannot use covariant or contravariant type hint {t}')
+        return t,
+    if isinstance(t, UnboundDelegate):
         return t,
 
     origin = get_origin(t)

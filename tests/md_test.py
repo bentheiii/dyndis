@@ -3,8 +3,8 @@ from unittest import TestCase
 
 from dyndis.candidate import Self
 
-from dyndis import MultiDispatch
-from dyndis.exceptions import AmbiguousBindingError
+from dyndis import MultiDispatch, UnboundAttr
+from dyndis.exceptions import AmbiguousBindingError, NoCandidateError
 
 
 class DefaultTest(TestCase):
@@ -133,6 +133,27 @@ class ExampleTests(TestCase):
         self.assertEqual(foo(object(), object()), t1)  # <=
         self.assertEqual(foo(False, 2), t2)  # </=
 
+    def test_unbound(self):
+        class StrDict(dict):
+            I = str
+
+        class MyList(list):
+            I = int
+
+        T = TypeVar('T', StrDict, MyList)
+        T_I = UnboundAttr(T, 'I')
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(a: T, i: T_I):
+            return a[i]
+
+        d = StrDict(a=3, b=4)
+        m = MyList([3, 4])
+
+        self.assertEqual(foo(d, 'a'), 3)
+        self.assertEqual(foo(m, 1), 4)
+
 
 class TypeVarTest(TestCase):
     def test_simple(self):
@@ -213,3 +234,51 @@ class TypeVarTest(TestCase):
         self.assertIsNone(foo(B()))
 
         self.assertIsNone(foo(C()))
+
+    def test_uncertain_binding_specialization(self):
+        class A: pass
+
+        class B: pass
+
+        class C(A, B): pass
+
+        T = TypeVar('T', A, B)
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(x: T):
+            pass
+
+        @foo.add_func()
+        def foo(x: C):
+            pass
+
+        self.assertIsNone(foo(A()))
+        self.assertIsNone(foo(B()))
+
+        self.assertIsNone(foo(C()))
+
+    def test_unbound(self):
+        class A:
+            Y = int
+
+        class B:
+            Y = str
+
+        T = TypeVar('T', A, B)
+        TY = UnboundAttr(T, 'Y')
+
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(x: T, y: TY):
+            pass
+
+        self.assertIsNone(foo(A(), 1))
+        self.assertIsNone(foo(B(), 'hi'))
+
+        with self.assertRaises(NoCandidateError):
+            foo(A(), 'hi')
+
+        with self.assertRaises(NoCandidateError):
+            foo(B(), 15)

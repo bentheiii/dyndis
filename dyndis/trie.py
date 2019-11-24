@@ -17,9 +17,10 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
     _empty_val: V
     _len: int
 
+    children_factory = dict
+
     def __init__(self, map=(), **additionals):
-        self._children: Dict[K, Trie[K, V]] = {}
-        self.children = MappingProxyType(self._children)
+        self.children: Dict[K, Trie[K, V]] = self.children_factory()
 
         self.clear()
 
@@ -31,9 +32,9 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         :param k: the key to ensure a child exists for
         :return: the child for key k
         """
-        ret = self._children.get(k, None)
+        ret = self.children.get(k, None)
         if ret is None:
-            ret = self._children[k] = type(self)()
+            ret = self.children[k] = type(self)()
         return ret
 
     def _set(self, i: Iterator[K], v: V, override: bool):
@@ -76,7 +77,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         except StopIteration:
             return self.value(d)
         else:
-            child = self._children.get(n)
+            child = self.children.get(n)
             if not child:
                 return d
             return child._get(i, d)
@@ -100,7 +101,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
                 self._empty_val = _missing
                 return True, _missing, popped
         else:
-            child = self._children.get(n)
+            child = self.children.get(n)
             if not child:
                 return False, None, None
             success, _, popped = child._pop(i)
@@ -112,7 +113,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
                 return True, n, popped
 
             if len(child) == 0:
-                del self._children[n]
+                del self.children[n]
 
             return True, _missing, popped
 
@@ -129,13 +130,13 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
             return ret
 
         t: Trie
-        k, t = next(iter(self._children.items()))
+        k, t = next(iter(self.children.items()))
         buffer.append(k)
         ret = t._pop_item(buffer)
         self._len -= 1
         if not t:
             if self or not buffer:
-                del self._children[k]
+                del self.children[k]
         return ret
 
     def _items(self):
@@ -147,7 +148,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         buffer = []
         if self._empty_val is not _missing:
             yield buffer, self._empty_val
-        stack: List[Iterator[Tuple[K, Trie[K, V]]]] = [iter(self._children.items())]
+        stack: List[Iterator[Tuple[K, Trie[K, V]]]] = [iter(self.children.items())]
         while stack:
             last_iter = stack[-1]
             try:
@@ -162,7 +163,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
                 buffer.append(k)
                 if t._empty_val is not _missing:
                     yield buffer, t._empty_val
-                stack.append(iter(t._children.items()))
+                stack.append(iter(t.children.items()))
 
     def __setitem__(self, string: Iterable[K], value: V):
         self._set(iter(string), value, True)
@@ -209,7 +210,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
     def values(self):
         if self._empty_val is not _missing:
             yield self._empty_val
-        for c in self._children.values():
+        for c in self.children.values():
             yield from c.values()
 
     def get(self, k, default=None) -> V:
@@ -220,7 +221,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
             return False
         return len(self) == len(other) \
                and self._empty_val == other._empty_val \
-               and self._children == other._children
+               and self.children == other.children
 
     def pop(self, key, default=_no_default):
         success, child_key, ret = self._pop(iter(key))
@@ -230,8 +231,8 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
             return default
         if child_key is not _missing:
             # a 0-length child needs dropping
-            assert len(self._children[child_key]) == 0
-            del self._children[child_key]
+            assert len(self.children[child_key]) == 0
+            del self.children[child_key]
         return ret
 
     def popitem(self, key_joiner: Optional[Callable[[List], Any]] = tuple):
@@ -252,7 +253,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
     def clear(self):
         self._len = 0
         self._empty_val = _missing
-        self._children.clear()
+        self.children.clear()
 
     def setdefault(self, k, default=None):
         return self._set(iter(k), default, override=False)[1]

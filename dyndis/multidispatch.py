@@ -3,26 +3,25 @@ from __future__ import annotations
 from functools import partial
 from itertools import chain
 from numbers import Number
-from typing import Dict, Tuple, List, Callable, Union, Iterable, TypeVar, Any
+from typing import Dict, Tuple, List, Callable, Union, Iterable, TypeVar, Any, NamedTuple, Optional
 
-from sortedcontainers import SortedDict
+from sortedcontainers import SortedDict, SortedList
 
 from dyndis.candidate import Candidate, least_key_index
+from dyndis.type_hints import UnboundDelegate, constrain_type
 from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod
-from dyndis.exceptions import NoCandidateError, AmbiguityError
+from dyndis.exceptions import NoCandidateError, AmbiguityError, AmbiguousBindingError, UnboundTypeVar
 from dyndis.implementor import Implementor
+from dyndis.ranked_children import RankedChildrenTrie, RankedChildrenExhaustion
 from dyndis.trie import Trie
-from dyndis.util import RawReturnValue, constrain_type
+from dyndis.util import RawReturnValue
 
 CandTrie = Trie[type, Dict[Number, Candidate]]
 
 RawNotImplemented = RawReturnValue(NotImplemented)
 
 
-# todo split advance and advance_inexact
-# todo class_member
-
-# todo display candidates in order
+# todo display candidates in order in candidates() (also in attempt order?)
 
 def process_new_layers(layers: Iterable[List[Candidate]]):
     """
@@ -52,6 +51,18 @@ def add_priority(seen_priorities: SortedDict[Number, List[Candidate]], candidate
     eq_prio_list.append(candidate)
 
 
+class QueuedVisit(NamedTuple):
+    rank: int
+    depth: int
+    trie: CandTrie
+    var_dict: Dict[TypeVar, type]
+
+
+class QueuedError(NamedTuple):
+    rank: int
+    error: Optional[Exception]
+
+
 class CachedSearch:
     """
     A cached search for candidates of a specific type tuple
@@ -64,102 +75,80 @@ class CachedSearch:
         """
         self.query = key
 
-        self.next_layer = []
-        sorted = SortedDict()
-        self.advance_search(owner._candidates, 0, sorted, self.next_layer, {})
+        self.visitation_queue = SortedList(key=lambda x: -x.rank)
+        self.visitation_queue.add(QueuedVisit(0, 0, owner.candidate_trie, {}))
+        self.sorted = []
 
-        self.sorted = process_new_layers(reversed(sorted.values()))
-
-    def __iter__(self):
-        yield from self.sorted
-        while self.next_layer:
-            yield from self.advance()
-
-    def advance(self) -> Iterable[List[Candidate]]:
-        """
-        advance the search into the next layer, caching the result
-
-        :return: the newly added candidates of this layer
-        """
+    def advance(self):
         ret = SortedDict()
-        nexts: List[Tuple[int, CandTrie, Dict[TypeVar, type]]] = []
-        for (depth, n_trie, var_dict) in self.next_layer:
-            self.advance_search(n_trie, depth, ret, nexts, var_dict)
 
-        self.next_layer = nexts
+        curr_rank = self.visitation_queue[-1].rank
+        while self.visitation_queue:
+            v_rank = self.visitation_queue[-1].rank
+            if v_rank != curr_rank:
+                break
+            qv = self.visitation_queue[-1]
+            if isinstance(qv, QueuedError):
+                raise qv.error
+            nexts = list(self.visit(qv, ret))
+            # we pop after to have an exception repeatable
+            self.visitation_queue.pop()
+            self.visitation_queue.update(nexts)
+
         new_layers = process_new_layers(reversed(ret.values()))
         self.sorted.extend(new_layers)
         return new_layers
 
-    def advance_search_inexact(self, current_trie: CandTrie, current_depth: int,
-                       results: SortedDict[Number, List[Candidate]],
-                       nexts: List[Tuple[int, CandTrie, Dict[TypeVar, type]]],
-                       var_dict: Dict[TypeVar, type]):
-        if current_depth == len(self.query):
-            pass
-        curr_key = self.query[current_depth]
-        children = dict(current_trie.children)
-        child = children.pop(curr_key, None)
-        if child:
-            self.advance_search_inexact(child, current_depth + 1, results, nexts, var_dict)
-        mro = curr_key.mro()
-        mro[0] = Any
-        for m in mro:
-            child = children.pop(m, None)
-            if child:
-                self.advance_search(child, current_depth+1, results, nexts, var_dict)
-
-        for child_type, child in children.items():
-            if isinstance(child_type, TypeVar) or issubclass(curr_key, child_type):
-                nexts.append((current_depth + 1, child, var_dict, child_type))
-
-    def advance_search(self, current_trie: CandTrie, current_depth: int,
-                       results: SortedDict[Number, List[Candidate]],
-                       nexts: List[Tuple[int, CandTrie, Dict[TypeVar, type]]],
-                       var_dict: Dict[TypeVar, type]):
-        """
-        advance the search by looking for candidates without any mismatches
-
-        :param current_trie: the trie to conduct the search in
-        :param current_depth: the current depth of the trie
-        :param results: a list of candidates that match
-        :param nexts: a list of tries to search in for the next layer
-        """
-        if current_depth == len(self.query):
-            curr_value = current_trie.value(None)
-            if curr_value:
-                for candidate in curr_value.values():
+    def visit(self, qv: QueuedVisit, results: SortedDict[Any, List[Candidate]]):
+        if qv.depth == len(self.query):
+            value = qv.trie.value(None)
+            if value:
+                for candidate in value.values():
                     add_priority(results, candidate)
             return
-        curr_key = self.query[current_depth]
-        children = dict(current_trie.children)
+        curr_key = self.query[qv.depth]
+        children: RankedChildrenExhaustion = qv.trie.children.exhaustion()
         child = children.pop(curr_key, None)
         if child:
-            self.advance_search(child, current_depth + 1, results, nexts, var_dict)
-        mro = curr_key.mro()
-        mro[0] = Any
-        for m in mro:
-            child = children.pop(m, None)
-            if child:
-                nexts.append((current_depth + 1, child, var_dict))
-        for child_type, child in children.items():
+            yield QueuedVisit(qv.rank, qv.depth + 1, child, qv.var_dict)
+
+        for child in children.pops(curr_key.__mro__[1:]):
+            yield QueuedVisit(qv.rank + 1, qv.depth + 1, child, qv.var_dict)
+
+        for child_type, child in children.iter_special_items():
+            if isinstance(child_type, UnboundDelegate):
+                tv = child_type.type_var
+                bound = qv.var_dict.get(tv)
+                if bound is None:
+                    raise UnboundTypeVar(tv, child_type)
+                child_type = child_type(bound)
+
             if isinstance(child_type, TypeVar):
-                assigned_type = var_dict.get(child_type)
-                next_var_dict = var_dict
+                next_var_dict = qv.var_dict
+                assigned_type = next_var_dict.get(child_type)
                 if assigned_type is None:
-                    constrained = constrain_type(curr_key, child_type)
+                    try:
+                        constrained = constrain_type(curr_key, child_type)
+                    except AmbiguousBindingError as e:
+                        yield QueuedError(qv.rank + 1, e)
+                        continue
+
                     if not constrained:
                         continue
                     next_var_dict = dict(next_var_dict)
                     assigned_type = next_var_dict[child_type] = constrained
 
                 if assigned_type is curr_key:
-                    self.advance_search(child, current_depth + 1, results, nexts, next_var_dict)
+                    yield QueuedVisit(qv.rank, qv.depth + 1, child, next_var_dict)
                 elif issubclass(curr_key, assigned_type):
-                    nexts.append((current_depth + 1, child, next_var_dict))
+                    yield QueuedVisit(qv.rank + 1, qv.depth + 1, child, next_var_dict)
+            elif child_type is Any or issubclass(curr_key, child_type):
+                yield QueuedVisit(qv.rank + 1, qv.depth + 1, child, qv.var_dict)
 
-            elif issubclass(curr_key, child_type):
-                nexts.append((current_depth + 1, child, var_dict))
+    def __iter__(self):
+        yield from self.sorted
+        while self.visitation_queue:
+            yield from self.advance()
 
 
 EMPTY = object()
@@ -178,7 +167,7 @@ class MultiDispatch:
         self.__name__ = name
         self.__doc__ = doc
 
-        self._candidates: CandTrie = Trie()
+        self.candidate_trie: CandTrie = RankedChildrenTrie()
         self.cache: Dict[int, Dict[Tuple[type, ...], CachedSearch]] = {}
 
     def _clean_cache(self, sizes: Iterable[int]):
@@ -198,9 +187,9 @@ class MultiDispatch:
         :param candidate: the candidate to add
         :param clean_cache: whether to clean the relevant cache
         """
-        sd = self._candidates.get(candidate.types)
+        sd = self.candidate_trie.get(candidate.types)
         if sd is None:
-            sd = self._candidates[candidate.types] = SortedDict()
+            sd = self.candidate_trie[candidate.types] = SortedDict()
         if candidate.priority in sd:
             raise ValueError(f'cannot insert candidate, a candidate of equal types ({candidate.types})'
                              f' and priority ({candidate.priority}) exists ')
@@ -320,12 +309,14 @@ class MultiDispatch:
         get all the candidates defined in the multidispatch. Candidates are sorted by their priority.
         """
         ret = SortedDict()
-        for sd in self._candidates.values():
+        for sd in self.candidate_trie.values():
             for k, v in sd.items():
                 ar = ret.get(k)
                 if ar is None:
                     ar = ret[k] = []
                 ar.append(v)
+
+        return chain.from_iterable(reversed(ret.values()))
 
     def __str__(self):
         if self.__name__:
