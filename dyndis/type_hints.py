@@ -43,25 +43,6 @@ class UnboundAttr(UnboundDelegate):
             return f'{type(self).__name__}({self.type_var.__name__}, {self.attribute!r}, {self.default!r})'
 
 
-def similar(i):
-    """
-    check that all values in iterable are equal, with 0 being an "any" value.
-
-    :return: the common member of the iterable, or None if any are None or no single common sign is found
-    """
-    ret = 0
-    for i in i:
-        if i is None:
-            return None
-        if ret == 0:
-            ret = i
-        elif i == 0:
-            continue
-        elif ret != i:
-            return None
-    return ret
-
-
 @lru_cache
 def constrain_type(cls, scls: Union[type, TypeVar, type(Any)]) -> Optional[type]:
     """
@@ -101,12 +82,30 @@ def cmp_type_hint(r: Union[type, TypeVar], l: Union[type, TypeVar]) -> Optional[
     1 if l <= r
     None if they cannot be compared
     """
+    def similar_sign(i):
+        """
+        check that all values in iterable are equal, with 0 being an "any" value.
+
+        :return: the common member of the iterable, or None if any are None or no single common sign is found
+        """
+        ret = 0
+        for i in i:
+            if i is None:
+                return None
+            if ret == 0:
+                ret = i
+            elif i == 0:
+                continue
+            elif ret != i:
+                return None
+        return ret
+
     if not isinstance(r, type):
         if isinstance(r, TypeVar):
             if r.__bound__:
                 return cmp_type_hint(r.__bound__, l)
             elif r.__constraints__:
-                return similar(cmp_type_hint(c, l) for c in r.__constraints__)
+                return similar_sign(cmp_type_hint(c, l) for c in r.__constraints__)
             else:
                 return cmp_type_hint(object, l)
         elif r is Any:

@@ -21,10 +21,11 @@ T = TypeVar('T', A, B)
 def foo(a: object):
     return 'obj'
 
+
 @foo.add_func()
 def foo(a: Any):
     return 'any'
 
-print(foo(A()))
 
+print(list(foo.candidates()))
 print(", ".join(str(c) for c in foo.candidates()))

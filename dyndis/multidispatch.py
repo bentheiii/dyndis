@@ -7,7 +7,8 @@ from typing import Dict, Tuple, List, Callable, Union, Iterable, TypeVar, Any, N
 
 from sortedcontainers import SortedDict, SortedList
 
-from dyndis.candidate import Candidate, least_key_index
+from dyndis.candidate import Candidate
+from dyndis.topological_ordering import TopologicalOrder
 from dyndis.type_hints import UnboundDelegate, constrain_type
 from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod
 from dyndis.exceptions import NoCandidateError, AmbiguityError, AmbiguousBindingError, UnboundTypeVar
@@ -29,13 +30,8 @@ def process_new_layers(layers: Iterable[List[Candidate]]):
     """
     ret = []
     for layer in layers:
-        while True:
-            least_ind = least_key_index(layer)
-            if least_ind == -1:
-                break
-            least = layer.pop(least_ind)
-            ret.append((least,))
-        ret.append(layer)
+        to = TopologicalOrder(layer)
+        ret.extend(to.sorted())
     return ret
 
 
@@ -311,12 +307,14 @@ class MultiDispatch:
         ret = SortedDict()
         for sd in self.candidate_trie.values():
             for k, v in sd.items():
-                ar = ret.get(k)
-                if ar is None:
-                    ar = ret[k] = []
-                ar.append(v)
+                to = ret.get(k)
+                if to is None:
+                    to = ret[k] = TopologicalOrder()
+                to.add(v)
 
-        return chain.from_iterable(reversed(ret.values()))
+        return chain.from_iterable(
+            chain.from_iterable(to.sorted()) for to in reversed(ret.values())
+        )
 
     def __str__(self):
         if self.__name__:

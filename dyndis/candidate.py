@@ -1,6 +1,6 @@
 from inspect import signature, Parameter
 from itertools import chain, product, permutations
-from typing import Union, Callable, get_type_hints, Any, Tuple, Collection, TypeVar, Dict, Optional, ByteString
+from typing import Union, Callable, get_type_hints, Any, Tuple, TypeVar, Dict, Optional, ByteString
 from warnings import warn
 
 from dyndis.type_hints import UnboundDelegate, issubclass_tv, cmp_type_hint
@@ -217,24 +217,3 @@ def cmp_key(rhs: Tuple[type, ...], lhs: Tuple[type, ...]):
         elif ret != i:
             return 0
     return ret
-
-
-def least_key_index(candidates: Collection[Candidate]):
-    """
-    :param candidates: a collection of candidates
-    :return: the index of the candidate with a least-key from among the candidates, or -1 if none exists
-    """
-    # todo test
-    if len(candidates) < 2:
-        return -1
-    i = iter(candidates)
-    ret = next(i)
-    ret_ind = 0
-    for ind, k in enumerate(i, 1):
-        cmp = cmp_key(ret.types, k.types)
-        if cmp == 0:
-            return -1
-        if cmp == 1:
-            ret_ind = ind
-            ret = k
-    return ret_ind

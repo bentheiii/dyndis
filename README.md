@@ -40,7 +40,7 @@ All candidates for parameters of types <T0, T1, T2..., TN> are ordered as follow
   
    Note that upcasting does not consider how far the hierarchy the casting is, so a candidate <object, object, object> will have the same rank as <object, Sequence, Sequence> (but see below).
  * Then, all candidates of equal rank are sorted (descending) by their priority. All decorators have a parameter to set a priority for candidates, by default the priority is 0. Some automatic processes can change a candidate's priority over other candidates of equal priority (such as with symmetric candidates, below).
- * Finally, of a set of candidates of equal rank and priority, if any candidate's parameter types are subclasses of all other candidates in the set, that candidate has priority. So that <int,object> will be considered before <Number, object> even for parameter type <bool, str>
+ * Finally, all the candidates of equal rank and priority will sorted topologically, where precedence is dictated by whether all the type hints of one candidate are subtypes of the type hints of the other candidate. So that <int,object> will be considered before <Number, object> even for parameter type <bool, str>
  
 If two candidates have equal rank and priority, and neither is a strict sub-key of the other, an exception (of type `dyndis.AmbiguityError`) is raised.
 ## Tries and Caches
