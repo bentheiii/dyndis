@@ -15,6 +15,8 @@ class NoCandidateError(TypeError):
 
 
 class AmbiguousBindingError(RuntimeError):
+    """An error indicating that a type variable could not find a single type to bind to"""
+
     def __init__(self, typevar, subclass, unrelated_classes):
         super().__init__(f'type variable {typevar} must up-cast type {subclass} to one of its constrained types,'
                          f' but it is a subclass of multiple non-related constraints: {unrelated_classes}'

@@ -3,7 +3,7 @@ from itertools import chain, product, permutations
 from typing import Union, Callable, get_type_hints, Any, Tuple, Collection, TypeVar, Dict, Type, Optional, ByteString
 from warnings import warn
 
-from dyndis.util import similar, issubclass_tv, SubPriority, get_origin, get_args, cmp_type_hint
+from dyndis.util import issubclass_tv, SubPriority, get_origin, get_args, cmp_type_hint
 
 try:
     from typing import Literal
@@ -12,6 +12,7 @@ except ImportError:
 
 Self = TypeVar('Self')
 
+# automatic type aliases according to various PEPS
 type_aliases: Dict[type, Tuple[type, ...]] = {
     float: (float, int),
     complex: (float, int, complex),
@@ -141,7 +142,12 @@ class Candidate:
                     ) for types in type_lists]
 
     def __str__(self):
-        return (self.__name__ or 'unnamed candidate') + '<' + ', '.join(n.__name__ for n in self.types) + '>'
+        def type_name(t):
+            if isinstance(t, type):
+                return t.__name__
+            return str(t)
+
+        return (self.__name__ or 'unnamed candidate') + '<' + ', '.join(type_name(n) for n in self.types) + '>'
 
     def permutations(self):
         """
@@ -165,7 +171,7 @@ class Candidate:
                 if t in seen:
                     continue
                 seen.add(t)
-                priority = self.priority
+                priority = SubPriority.make(self.priority, 1)
                 first = False
             else:
                 t = tuple(self.types[i] for i in perm)
@@ -181,7 +187,7 @@ class Candidate:
                 func = ns['func']
                 if name:
                     func.__name__ = name
-                priority = SubPriority.make(self.priority)
+                priority = self.priority
             ret.append(
                 Candidate(t, func, priority)
             )
@@ -209,7 +215,7 @@ def cmp_key(rhs: Tuple[type, ...], lhs: Tuple[type, ...]):
     return ret
 
 
-def get_least_key_index(candidates: Collection[Candidate]):
+def least_key_index(candidates: Collection[Candidate]):
     """
     :param candidates: a collection of candidates
     :return: the index of the candidate with a least-key from among the candidates, or -1 if none exists

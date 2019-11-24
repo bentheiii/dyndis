@@ -46,7 +46,7 @@ class Implementor:
 
         def check_candidate(candidate):
             if self.multidispatch.__name__ is not None \
-                    and candidate.__name__ is not None\
+                    and candidate.__name__ is not None \
                     and self.multidispatch.__name__.strip('_') != candidate.__name__.strip('_'):
                 warn(f'implementor {candidate} in class {owner.__name__} has dissimilar name from multidispatch'
                      f' {self.multidispatch}', stacklevel=5)

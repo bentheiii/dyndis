@@ -31,6 +31,11 @@ class RawReturnValue(NamedTuple):
 
 
 def similar(i):
+    """
+    check that all values in iterable are equal, with 0 being an "any" value.
+
+    :return: the common member of the iterable, or None if any are None or no single common sign is found
+    """
     ret = 0
     for i in i:
         if i is None:
@@ -45,7 +50,10 @@ def similar(i):
 
 
 @lru_cache
-def constrain_type(cls, scls: Union[type, TypeVar]) -> Optional[type]:
+def constrain_type(cls, scls: Union[type, TypeVar, type(Any)]) -> Optional[type]:
+    """
+    get the lowest type that cls can be up-cast to and scls accepts as constraint. Or None if none exists.
+    """
     if scls is Any:
         return cls
     elif isinstance(scls, TypeVar):
@@ -66,16 +74,23 @@ def constrain_type(cls, scls: Union[type, TypeVar]) -> Optional[type]:
 
 
 def issubclass_tv(cls, scls):
+    """
+    :return: True if cls can be upcast to a type that fits in scls's type constraints
+    """
     return constrain_type(cls, scls) is not None
 
 
 class SubPriority:
+    """
+    A generic priority with a secondary modifier
+    """
     @classmethod
     def make(cls, x, weight=-1):
+        """
+        create a sub-priority
+        """
         if weight == 0:
             return x
-        if isinstance(x, cls):
-            return cls(x.original, x.weight + weight)
         return cls(x, weight)
 
     def __init__(self, original, weight):
@@ -85,6 +100,9 @@ class SubPriority:
 
     @classmethod
     def to_key(cls, x):
+        """
+        force x into a key that can be compared with self.key
+        """
         if isinstance(x, cls):
             return x.key
         return x, 0
@@ -101,8 +119,14 @@ class SubPriority:
     def __ge__(self, other):
         return self.key >= self.to_key(other)
 
+    def __eq__(self, other):
+        return self.key == self.to_key(other)
 
-def cmp_type_hint(r: Union[type, TypeVar], l: Union[type, TypeVar]):
+    def __hash__(self):
+        return hash(self.key)
+
+
+def cmp_type_hint(r: Union[type, TypeVar], l: Union[type, TypeVar])->Optional[int]:
     """
     can return 4 values:
     0 if they are identical
@@ -110,14 +134,19 @@ def cmp_type_hint(r: Union[type, TypeVar], l: Union[type, TypeVar]):
     1 if l <= r
     None if they cannot be compared
     """
-    if isinstance(r, TypeVar):
-        if r.__bound__:
-            return cmp_type_hint(r.__bound__, l)
-        elif r.__constraints__:
-            return similar(cmp_type_hint(c, l) for c in r.__constraints__)
+    if not isinstance(r, type):
+        if isinstance(r, TypeVar):
+            if r.__bound__:
+                return cmp_type_hint(r.__bound__, l)
+            elif r.__constraints__:
+                return similar(cmp_type_hint(c, l) for c in r.__constraints__)
+            else:
+                return cmp_type_hint(object, l)
+        elif r is Any:
+            return int(l is not Any)
         else:
-            return cmp_type_hint(object, l)
-    elif isinstance(l, TypeVar):
+            raise TypeError
+    elif not isinstance(l, type):
         i_cth = cmp_type_hint(l, r)
         return i_cth and -i_cth
     else:  # both are types

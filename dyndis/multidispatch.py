@@ -7,7 +7,7 @@ from typing import Dict, Tuple, List, Callable, Union, Iterable, TypeVar, Any
 
 from sortedcontainers import SortedDict
 
-from dyndis.candidate import Candidate, get_least_key_index
+from dyndis.candidate import Candidate, least_key_index
 from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod
 from dyndis.exceptions import NoCandidateError, AmbiguityError
 from dyndis.implementor import Implementor
@@ -19,11 +19,19 @@ CandTrie = Trie[type, Dict[Number, Candidate]]
 RawNotImplemented = RawReturnValue(NotImplemented)
 
 
+# todo split advance and advance_inexact
+# todo class_member
+
+# todo display candidates in order
+
 def process_new_layers(layers: Iterable[List[Candidate]]):
+    """
+    split universal minimal members into their own layers
+    """
     ret = []
     for layer in layers:
         while True:
-            least_ind = get_least_key_index(layer)
+            least_ind = least_key_index(layer)
             if least_ind == -1:
                 break
             least = layer.pop(least_ind)
@@ -58,7 +66,7 @@ class CachedSearch:
 
         self.next_layer = []
         sorted = SortedDict()
-        self.advance_search(owner.candidates, 0, sorted, self.next_layer, {})
+        self.advance_search(owner._candidates, 0, sorted, self.next_layer, {})
 
         self.sorted = process_new_layers(reversed(sorted.values()))
 
@@ -82,6 +90,28 @@ class CachedSearch:
         new_layers = process_new_layers(reversed(ret.values()))
         self.sorted.extend(new_layers)
         return new_layers
+
+    def advance_search_inexact(self, current_trie: CandTrie, current_depth: int,
+                       results: SortedDict[Number, List[Candidate]],
+                       nexts: List[Tuple[int, CandTrie, Dict[TypeVar, type]]],
+                       var_dict: Dict[TypeVar, type]):
+        if current_depth == len(self.query):
+            pass
+        curr_key = self.query[current_depth]
+        children = dict(current_trie.children)
+        child = children.pop(curr_key, None)
+        if child:
+            self.advance_search_inexact(child, current_depth + 1, results, nexts, var_dict)
+        mro = curr_key.mro()
+        mro[0] = Any
+        for m in mro:
+            child = children.pop(m, None)
+            if child:
+                self.advance_search(child, current_depth+1, results, nexts, var_dict)
+
+        for child_type, child in children.items():
+            if isinstance(child_type, TypeVar) or issubclass(curr_key, child_type):
+                nexts.append((current_depth + 1, child, var_dict, child_type))
 
     def advance_search(self, current_trie: CandTrie, current_depth: int,
                        results: SortedDict[Number, List[Candidate]],
@@ -111,7 +141,7 @@ class CachedSearch:
         for m in mro:
             child = children.pop(m, None)
             if child:
-                nexts.append((current_depth+1, child, var_dict))
+                nexts.append((current_depth + 1, child, var_dict))
         for child_type, child in children.items():
             if isinstance(child_type, TypeVar):
                 assigned_type = var_dict.get(child_type)
@@ -126,10 +156,10 @@ class CachedSearch:
                 if assigned_type is curr_key:
                     self.advance_search(child, current_depth + 1, results, nexts, next_var_dict)
                 elif issubclass(curr_key, assigned_type):
-                    nexts.append((current_depth+1, child, next_var_dict))
+                    nexts.append((current_depth + 1, child, next_var_dict))
 
             elif issubclass(curr_key, child_type):
-                nexts.append((current_depth+1, child, var_dict))
+                nexts.append((current_depth + 1, child, var_dict))
 
 
 EMPTY = object()
@@ -148,7 +178,7 @@ class MultiDispatch:
         self.__name__ = name
         self.__doc__ = doc
 
-        self.candidates: CandTrie = Trie()
+        self._candidates: CandTrie = Trie()
         self.cache: Dict[int, Dict[Tuple[type, ...], CachedSearch]] = {}
 
     def _clean_cache(self, sizes: Iterable[int]):
@@ -168,9 +198,9 @@ class MultiDispatch:
         :param candidate: the candidate to add
         :param clean_cache: whether to clean the relevant cache
         """
-        sd = self.candidates.get(candidate.types)
+        sd = self._candidates.get(candidate.types)
         if sd is None:
-            sd = self.candidates[candidate.types] = SortedDict()
+            sd = self._candidates[candidate.types] = SortedDict()
         if candidate.priority in sd:
             raise ValueError(f'cannot insert candidate, a candidate of equal types ({candidate.types})'
                              f' and priority ({candidate.priority}) exists ')
@@ -284,6 +314,18 @@ class MultiDispatch:
         create an Implementor for the MultiDispatch and call its implementor method with the arguments
         """
         return Implementor(self).implementor(*args, **kwargs)
+
+    def candidates(self):
+        """
+        get all the candidates defined in the multidispatch. Candidates are sorted by their priority.
+        """
+        ret = SortedDict()
+        for sd in self._candidates.values():
+            for k, v in sd.items():
+                ar = ret.get(k)
+                if ar is None:
+                    ar = ret[k] = []
+                ar.append(v)
 
     def __str__(self):
         if self.__name__:

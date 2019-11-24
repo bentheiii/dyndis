@@ -1,16 +1,32 @@
-from typing import TypeVar, Union
+from typing import TypeVar
 
 from dyndis import MultiDispatch
 
 foo = MultiDispatch()
 
-T = TypeVar('T')
-R = TypeVar('R')
+
+class A: pass
+
+
+class B: pass
+
+
+class C(A, B): pass
+
+
+T = TypeVar('T', A, B)
 
 
 @foo.add_func()
-def foo(a: T, b: R, c: Union[T, R]):
-    return 0 if isinstance(c, type(a)) else 1
+def foo(a: T):
+    pass
 
 
-print(foo(1, 2.5, 2.0j))
+@foo.add_func()
+def foo(a: C):
+    pass
+
+
+foo(C())
+
+print(", ".join(str(c) for c in foo.candidates()))
