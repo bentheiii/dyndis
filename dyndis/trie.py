@@ -12,7 +12,7 @@ _no_default = object()
 
 class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
     """
-    A generic non-compressing trie that supports manual search. Acts as a mapping of iterables to keys
+    A generic non-compressing trie that supports manual search. Acts as a mapping of iterables to keys.
     """
     _empty_val: V
     _len: int

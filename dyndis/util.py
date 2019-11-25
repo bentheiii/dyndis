@@ -1,10 +1,7 @@
-from functools import lru_cache
-from typing import Any, NamedTuple, TypeVar, Optional, Union
-
-from dyndis.type_hints import UnboundDelegate
-from dyndis.exceptions import AmbiguousBindingError
+from typing import Any, NamedTuple
 
 try:
+    # get_origin and get_args are only defined in 3.8
     from typing import get_origin, get_args
 except ImportError:
     def get_origin(tp):
@@ -29,6 +26,7 @@ class RawReturnValue(NamedTuple):
         if isinstance(x, cls):
             return x.inner
         return x
+
 
 class SubPriority:
     """

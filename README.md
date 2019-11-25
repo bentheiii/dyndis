@@ -178,7 +178,7 @@ foo(object(), object())  # <=
 foo(False, 2)  # </=
 ```
 
-By default, candidates have their priorities adjusted so that candidates with more `TypeVar`s are ranked below candidates below.
+Candidates have their priorities adjusted so that candidates with more `TypeVar`s are ranked below candidates with less.
 
 ## `UnboundDelegate`
 Advanced usage can also make use of the various `UnboundDelegate` subclasses to get attributes of types assigned to type variables, to allow for Rust-style type requirements

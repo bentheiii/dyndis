@@ -1,10 +1,27 @@
-from typing import Sized, Union, TypeVar, Any
+from typing import Sized, Union, TypeVar, Any, Sequence
 from unittest import TestCase
 
-from dyndis.candidate import Self
+from dyndis import MultiDispatch, UnboundAttr, Self
+from dyndis.exceptions import NoCandidateError, AmbiguityError
+from dyndis.multidispatch import AmbiguousBindingError
 
-from dyndis import MultiDispatch, UnboundAttr
-from dyndis.exceptions import AmbiguousBindingError, NoCandidateError
+
+class GeneralTest(TestCase):
+    def test_topology(self):
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(a: int, b: Sized):
+            return a * len(b)
+
+        @foo.add_func()
+        def foo(a: int, b: Sequence):
+            return a * len(b) * 2
+
+        self.assertEqual(foo(4, "aa"), 16)
+        self.assertEqual(foo(4, "a"), 8)
+        self.assertEqual(foo(4, set(range(6))), 24)
+        self.assertEqual(foo(4, set((1, 2))), 8)
 
 
 class DefaultTest(TestCase):
@@ -190,7 +207,7 @@ class TypeVarTest(TestCase):
         foo = MultiDispatch()
 
         @foo.add_func()
-        def foo(a: T, b: T = ()):
+        def foo(a: T, b: Union[T, tuple] = ()):
             return len(a) * len(b)
 
         self.assertEqual(foo('aaa'), 0)
@@ -282,3 +299,43 @@ class TypeVarTest(TestCase):
 
         with self.assertRaises(NoCandidateError):
             foo(B(), 15)
+
+    def test_unbound_to_union(self):
+        class A:
+            Y = Union[int, str]
+
+        class B:
+            Y = str
+
+        T = TypeVar('T', A, B)
+        TY = UnboundAttr(T, 'Y')
+
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(x: T, y: TY):
+            pass
+
+        self.assertIsNone(foo(A(), 1))
+        self.assertIsNone(foo(A(), 'hi'))
+        self.assertIsNone(foo(B(), 'hi'))
+
+        with self.assertRaises(NoCandidateError):
+            foo(B(), 15)
+
+    def test_cmp(self):
+        T = TypeVar('T')
+        Y = TypeVar('Y')
+
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(x: T):
+            pass
+
+        @foo.add_func()
+        def foo(x: Y):
+            pass
+
+        with self.assertRaises(AmbiguityError):
+            foo(1)

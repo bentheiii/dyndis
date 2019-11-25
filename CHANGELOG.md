@@ -6,6 +6,7 @@
 * support for positional parameters with default values
 * support for `typing.TypeVar`
 * added `MultiDispatch.candidates()` method
+* added `dyndis.UnboundDelegate` base class and subclasses
 ### changed
 * `float` is now interpreted as `Union[float, int]`
 * `complex` is now interpreted as `Union[float, int, complex]`

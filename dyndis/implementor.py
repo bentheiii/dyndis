@@ -4,7 +4,8 @@ from numbers import Number
 from typing import NamedTuple, Callable, List, Union
 from warnings import warn
 
-from dyndis.candidate import Candidate, Self
+from dyndis.candidate import Candidate
+from dyndis.type_keys.type_key import Self
 
 
 class QueuedImplementation(NamedTuple):

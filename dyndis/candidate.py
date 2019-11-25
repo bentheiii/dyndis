@@ -1,74 +1,31 @@
 from inspect import signature, Parameter
 from itertools import chain, product, permutations
-from typing import Union, Callable, get_type_hints, Any, Tuple, TypeVar, Dict, Optional, ByteString
+from typing import Callable, get_type_hints, Iterable, Tuple
 from warnings import warn
 
-from dyndis.type_hints import UnboundDelegate, issubclass_tv, cmp_type_hint
-from dyndis.util import get_origin, get_args, SubPriority
+from dyndis.type_keys.type_key import TypeKey, type_keys, CoreTypeKey, SelfKey
+from dyndis.util import SubPriority
 
 try:
     from typing import Literal
 except ImportError:
     Literal = None
 
-Self = TypeVar('Self')
 
-# automatic type aliases according to various PEPS
-type_aliases: Dict[type, Tuple[type, ...]] = {
-    float: (float, int),
-    complex: (float, int, complex),
-    bytes: (ByteString,)
-}
-
-
-def to_type_iter(t: Union[type, None], self_type):
+def includes_keys(lhs: Tuple[TypeKey, ...], rhs: Tuple[TypeKey, ...]):
     """
-    Convert a type hint to an iteration of concrete types
-    :param t: the type hint
-    :param self_type: the type to substitute when encountering Self
-    :return: a tuple of concrete types
-    can handle:
-    * types
-    * singletons (..., None, Notimplemented)
-    * the typing.Any object (equivalent to object)
-    * the dyndis.Self object
-    * any non-specific typing abstract class (Sized, Iterable, ect...)
-    * Type variables
-    * typing.Union
-    * dyndis.UnboundDelegate object
-    3.8 only:
-    * Literals of singleton types
+    :return: whether each typekey in lhs is less than or equal to at least one type key in rhs
     """
-    if isinstance(t, type):
-        alias = type_aliases.get(t, None)
-        return alias or (t,)
-    if t is Any:
-        return t,
-    if t is Self:
-        if self_type is _missing:
-            raise ValueError('Self cannot be used as a type hint outside of Implementor')
-        return to_type_iter(self_type, self_type)
-    if t in (..., NotImplemented, None):
-        return to_type_iter(type(t), self_type)
-    if isinstance(t, TypeVar):
-        if t.__contravariant__ or t.__covariant__:
-            raise ValueError(f'cannot use covariant or contravariant type hint {t}')
-        return t,
-    if isinstance(t, UnboundDelegate):
-        return t,
-
-    origin = get_origin(t)
-    args = get_args(t)
-
-    if Literal and origin is Literal:
-        if any(a not in (None, ..., NotImplemented) for a in args):
-            raise TypeError('only Literal[singleton] can be used in type hint')
-        return chain.from_iterable(to_type_iter(a, self_type) for a in args)
-    if origin is Union:
-        return chain.from_iterable(to_type_iter(a, self_type) for a in t.__args__)
-    if isinstance(origin, type) and not args:
-        return to_type_iter(origin, self_type)
-    raise TypeError(f'type annotation {t} is not a type, give it a default to ignore it from the candidate list')
+    for left in lhs:
+        for right in rhs:
+            try:
+                if left <= right:
+                    break
+            except TypeError:
+                continue
+        else:
+            return False
+    return True
 
 
 _missing = object()
@@ -79,21 +36,20 @@ class Candidate:
     A class representing a specific implementation for a multi-dispatch
     """
 
-    def __init__(self, types, func: Callable, priority):
+    def __init__(self, types: Iterable[TypeKey], func: Callable, priority):
         """
         :param types: the types for the conditions
         :param func: the function of the implementation
         :param priority: the priority of the candidate over other candidates (higher is tried first)
         """
-        self.types = types
+        self.types = tuple(types)
         self.func = func
         self.priority = priority
         self.__name__ = getattr(func, '__name__', None)
         self.__doc__ = getattr(func, '__doc__', None)
 
     @classmethod
-    def from_func(cls, priority, func, fallback_type_hint=_missing, self_type=_missing,
-                  priority_adjust: Optional[Callable] = ...):
+    def from_func(cls, priority, func, fallback_type_hint=_missing, self_type=_missing):
         """
         create a list of candidates from function using the function's type hints. ignores all parameters with default
         values, as well as variadic parameters or keyword-only parameters
@@ -102,20 +58,13 @@ class Candidate:
         :param func: the function to use
         :param fallback_type_hint: the default type hint to use for parameters with missing hints
          this function
+        :param self_type: the type to put in place of dyndis.Self (if found)
 
         :return: a list of candidates generated from the function
         """
-        if priority_adjust is ...:
-            def priority_adjust(original, types):
-                # reduce the priority by the number of distinct type variables
-                t_var_count = len(set(t for t in types if isinstance(t, TypeVar)))
-                original = SubPriority.make(original, -t_var_count)
-                return original
-        if priority_adjust is None:
-            def priority_adjust(original, types):
-                return original
 
         type_hints = get_type_hints(func)
+
         params = signature(func).parameters
         type_iters = []
         super_type_iters = [type_iters]
@@ -128,22 +77,49 @@ class Candidate:
                 if p.default is p.empty:
                     break
                 raise KeyError(p.name)
-            i = to_type_iter(t, self_type)
+
+            i = type_keys(t)
             if p.default is not p.empty:
                 default_type = type(p.default)
-                if default_type is not object \
-                        and not any(issubclass_tv(default_type, x) for x in i):
-                    if p.default is None:
-                        i = (default_type, *i)
-                    else:
-                        warn(f'default value for parameter {p.name} is not included in its annotations', stacklevel=3)
+                if default_type is not object:
+                    default_type_keys = type_keys(default_type)
+                    if not includes_keys(default_type_keys, i):
+                        if p.default is None:
+                            i = {*i, *default_type_keys}
+                        else:
+                            warn(f'default value for parameter {p.name} is not included in its annotations',
+                                 stacklevel=3)
                 super_type_iters.append(list(type_iters))
             type_iters.append(i)
 
-        type_lists = list(chain.from_iterable(product(*ti) for ti in super_type_iters))
-        return [cls(tuple(types), func,
-                    priority_adjust(priority, tuple(types))
-                    ) for types in type_lists]
+        type_lists = chain.from_iterable(product(*ti) for ti in super_type_iters)
+        ret = []
+        if self_type is not _missing:
+            stk = type_keys(self_type)
+            if len(stk) != 1 or not isinstance(stk[0], CoreTypeKey):
+                raise TypeError('self_type must evaluate to a single core type key')
+            self_type_key = stk[0]
+        else:
+            self_type_key = None
+
+        for types in type_lists:
+            types = list(types)
+
+            encountered_tvars = set()
+            tk: TypeKey
+            for i, tk in enumerate(types):
+                if tk is SelfKey:
+                    if self_type_key is None:
+                        raise Exception('cannot use dyndis.Self outside of implementors')
+                    tk = types[i] = self_type_key
+                if not isinstance(tk, CoreTypeKey):
+                    raise Exception('split returned a non-core type key')
+                tk.introduce(encountered_tvars)
+            ret.append(cls(
+                types, func,
+                SubPriority.make(priority, sum(t.priority_offset() for t in set(types)))
+            ))
+        return ret
 
     def __str__(self):
         def type_name(t):
@@ -175,7 +151,7 @@ class Candidate:
                 if t in seen:
                     continue
                 seen.add(t)
-                priority = SubPriority.make(self.priority, 1)
+                priority = self.priority
                 first = False
             else:
                 t = tuple(self.types[i] for i in perm)
@@ -191,29 +167,8 @@ class Candidate:
                 func = ns['func']
                 if name:
                     func.__name__ = name
-                priority = self.priority
+                priority = SubPriority(self.priority, -1)
             ret.append(
                 Candidate(t, func, priority)
             )
         return ret
-
-
-def cmp_key(rhs: Tuple[type, ...], lhs: Tuple[type, ...]):
-    """
-    check whether two type tuples are ordered in any way
-    :return: -1 if rhs is a sub-key of lhs, 1 if lhs is a sub-key of rhs, 0 if the two keys cannot be compared
-     (it is an error to send identical keys)
-    """
-    ret = 0
-    for r, l in zip(rhs, lhs):
-        i = cmp_type_hint(r, l)
-        if i is None:
-            return 0
-        if i == 0:
-            continue
-
-        if ret == 0:
-            ret = i
-        elif ret != i:
-            return 0
-    return ret

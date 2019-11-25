@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from functools import partial
+from functools import partial, lru_cache
 from itertools import chain
 from numbers import Number
 from typing import Dict, Tuple, List, Callable, Union, Iterable, TypeVar, Any, NamedTuple, Optional
@@ -9,20 +9,51 @@ from sortedcontainers import SortedDict, SortedList
 
 from dyndis.candidate import Candidate
 from dyndis.topological_ordering import TopologicalOrder
-from dyndis.type_hints import UnboundDelegate, constrain_type
 from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod
-from dyndis.exceptions import NoCandidateError, AmbiguityError, AmbiguousBindingError, UnboundTypeVar
+from dyndis.exceptions import NoCandidateError, AmbiguityError
 from dyndis.implementor import Implementor
 from dyndis.ranked_children import RankedChildrenTrie, RankedChildrenExhaustion
 from dyndis.trie import Trie
+from dyndis.type_keys.type_key import TypeVarKey, ClassKey, TypeKey, MatchException, MatchKind
 from dyndis.util import RawReturnValue
 
-CandTrie = Trie[type, Dict[Number, Candidate]]
+CandTrie = Trie[TypeKey, Dict[Number, Candidate]]
 
 RawNotImplemented = RawReturnValue(NotImplemented)
 
 
-# todo display candidates in order in candidates() (also in attempt order?)
+class AmbiguousBindingError(MatchException):
+    """An error indicating that a type variable could not find a single type to bind to"""
+    rank_offset = MatchKind.upcast
+
+    def __init__(self, typevar, subclass, unrelated_classes):
+        super().__init__(f'type variable {typevar} must up-cast type {subclass} to one of its constrained types,'
+                         f' but it is a subclass of multiple non-related constraints: {unrelated_classes}'
+                         f' (consider adding {subclass} as an explicit constraint in {typevar},'
+                         f' or a specialized overload for {subclass})')
+
+
+@lru_cache
+def constrain_type(cls, scls: Union[type, TypeVar]) -> Optional[ClassKey]:
+    """
+    get the lowest type that cls can be up-cast to and scls accepts as constraint. Or None if none exists.
+    """
+    if isinstance(scls, TypeVar):
+        if scls.__constraints__:
+            candidates = [c for c in scls.__constraints__ if issubclass(cls, c)]
+            if not candidates:
+                return None
+            minimal_candidates = [
+                cand for cand in candidates if all(issubclass(cand, c) for c in candidates)
+            ]
+            if len(minimal_candidates) != 1:
+                raise AmbiguousBindingError(scls, cls, minimal_candidates or candidates)
+            return ClassKey(minimal_candidates[0])
+        elif scls.__bound__:
+            return constrain_type(cls, scls.__bound__)
+        return ClassKey(cls)
+    return ClassKey(cls) if issubclass(cls, scls) else None
+
 
 def process_new_layers(layers: Iterable[List[Candidate]]):
     """
@@ -31,7 +62,7 @@ def process_new_layers(layers: Iterable[List[Candidate]]):
     ret = []
     for layer in layers:
         to = TopologicalOrder(layer)
-        ret.extend(to.sorted())
+        ret.extend(to.sorted_layers())
     return ret
 
 
@@ -48,6 +79,9 @@ def add_priority(seen_priorities: SortedDict[Number, List[Candidate]], candidate
 
 
 class QueuedVisit(NamedTuple):
+    """
+    A queued visitation of a trie for a search
+    """
     rank: int
     depth: int
     trie: CandTrie
@@ -55,6 +89,9 @@ class QueuedVisit(NamedTuple):
 
 
 class QueuedError(NamedTuple):
+    """
+    A queued error, signifying that an error occurred when searching a node of a certain rank
+    """
     rank: int
     error: Optional[Exception]
 
@@ -76,6 +113,11 @@ class CachedSearch:
         self.sorted = []
 
     def advance(self):
+        """
+        advance the search by 1 rank
+
+        :return: only the members of the new rank, after adding them to the cache for future searches
+        """
         ret = SortedDict()
 
         curr_rank = self.visitation_queue[-1].rank
@@ -86,8 +128,8 @@ class CachedSearch:
             qv = self.visitation_queue[-1]
             if isinstance(qv, QueuedError):
                 raise qv.error
-            nexts = list(self.visit(qv, ret))
-            # we pop after to have an exception repeatable
+            nexts = self.visit(qv, ret)
+            # we only modify the queue after visit, because if an exception happened we want it to repeat
             self.visitation_queue.pop()
             self.visitation_queue.update(nexts)
 
@@ -96,6 +138,13 @@ class CachedSearch:
         return new_layers
 
     def visit(self, qv: QueuedVisit, results: SortedDict[Any, List[Candidate]]):
+        """
+        evaluate a queued visit, adding all the candidates of the rank into results
+
+        :param qv: the queued visit to evaluate
+        :param results: the dict to add all valid candidates to
+        :return: an iterator of all the future queued visits originating from this visit
+        """
         if qv.depth == len(self.query):
             value = qv.trie.value(None)
             if value:
@@ -104,42 +153,38 @@ class CachedSearch:
             return
         curr_key = self.query[qv.depth]
         children: RankedChildrenExhaustion = qv.trie.children.exhaustion()
-        child = children.pop(curr_key, None)
+        child = children.exhaust(curr_key, None)
         if child:
             yield QueuedVisit(qv.rank, qv.depth + 1, child, qv.var_dict)
 
-        for child in children.pops(curr_key.__mro__[1:]):
+        # skip the fist element in mro, since it is an exact match
+        mro = iter(curr_key.__mro__)
+        next(mro)
+
+        for child in children.exhaust_many(mro):
             yield QueuedVisit(qv.rank + 1, qv.depth + 1, child, qv.var_dict)
 
-        for child_type, child in children.iter_special_items():
-            if isinstance(child_type, UnboundDelegate):
-                tv = child_type.type_var
-                bound = qv.var_dict.get(tv)
-                if bound is None:
-                    raise UnboundTypeVar(tv, child_type)
-                child_type = child_type(bound)
+        for child_type, child in children.iter_unexhausted_special_items():
+            next_var_dict = qv.var_dict
+            if isinstance(child_type, TypeVarKey) and (child_type.inner not in next_var_dict):
+                try:
+                    constrained = constrain_type(curr_key, child_type.inner)
+                except MatchException as e:
+                    yield QueuedError(qv.rank + e.rank_offset, e)
+                    continue
+                if not constrained:
+                    continue
 
-            if isinstance(child_type, TypeVar):
-                next_var_dict = qv.var_dict
-                assigned_type = next_var_dict.get(child_type)
-                if assigned_type is None:
-                    try:
-                        constrained = constrain_type(curr_key, child_type)
-                    except AmbiguousBindingError as e:
-                        yield QueuedError(qv.rank + 1, e)
-                        continue
+                next_var_dict = dict(next_var_dict)
+                next_var_dict[child_type.inner] = constrained
 
-                    if not constrained:
-                        continue
-                    next_var_dict = dict(next_var_dict)
-                    assigned_type = next_var_dict[child_type] = constrained
-
-                if assigned_type is curr_key:
-                    yield QueuedVisit(qv.rank, qv.depth + 1, child, next_var_dict)
-                elif issubclass(curr_key, assigned_type):
-                    yield QueuedVisit(qv.rank + 1, qv.depth + 1, child, next_var_dict)
-            elif child_type is Any or issubclass(curr_key, child_type):
-                yield QueuedVisit(qv.rank + 1, qv.depth + 1, child, qv.var_dict)
+            match = child_type.match(curr_key, next_var_dict)
+            if isinstance(match, MatchException):
+                yield QueuedError(qv.rank + match.rank_offset, match)
+            elif match is None:
+                continue
+            else:
+                yield QueuedVisit(qv.rank + match, qv.depth + 1, child, next_var_dict)
 
     def __iter__(self):
         yield from self.sorted
@@ -302,7 +347,8 @@ class MultiDispatch:
 
     def candidates(self):
         """
-        get all the candidates defined in the multidispatch. Candidates are sorted by their priority.
+        get all the candidates defined in the multidispatch.
+         Candidates are sorted by their priority, then topologically.
         """
         ret = SortedDict()
         for sd in self.candidate_trie.values():
@@ -313,7 +359,7 @@ class MultiDispatch:
                 to.add(v)
 
         return chain.from_iterable(
-            chain.from_iterable(to.sorted()) for to in reversed(ret.values())
+            chain.from_iterable(to.sorted_layers()) for to in reversed(ret.values())
         )
 
     def __str__(self):
