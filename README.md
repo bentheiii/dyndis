@@ -1,5 +1,5 @@
 # Dyndis
-
+[`pip install dyndis`](https://pypi.org/project/dyndis/)
 ## About
 Dyndis is a library to easily and fluently make multiple-dispatch functions and methods. It was originally made for operators in non-strict hierarchical systems but can also serve any other multiple-dispatch purpose.
 ## Simple Example
