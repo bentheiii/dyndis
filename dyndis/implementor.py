@@ -60,6 +60,8 @@ class Implementor:
             chain.from_iterable(q.cands(owner) for q in self.queue)
         )
         self.locked = True
+        # self-destruct
+        delattr(owner, name)
 
     def implementor(self, priority=0, symmetric=False, func=None) \
             -> Union[Callable[..., 'Implementor'], 'Implementor']:

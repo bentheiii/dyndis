@@ -148,8 +148,6 @@ class Candidate:
             if first:
                 func = self.func
                 t = self.types
-                if t in seen:
-                    continue
                 seen.add(t)
                 priority = self.priority
                 first = False
@@ -158,6 +156,7 @@ class Candidate:
                 if t in seen:
                     continue
                 seen.add(t)
+
                 args = ", ".join('_' + str(i) for i in perm)
                 ns = {}
                 exec(

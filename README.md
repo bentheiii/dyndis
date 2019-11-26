@@ -43,13 +43,15 @@ All candidates for parameters of types <T0, T1, T2..., TN> are ordered as follow
  * Finally, all the candidates of equal rank and priority will sorted topologically, where precedence is dictated by whether all the type hints of one candidate are subtypes of the type hints of the other candidate. So that <int,object> will be considered before <Number, object> even for parameter type <bool, str>
  
 If two candidates have equal rank and priority, and neither is a strict sub-key of the other, an exception (of type `dyndis.AmbiguityError`) is raised.
+
+If a candidate returns `NotImplemented`, the next candidate in the order is tried.
 ## Tries and Caches
 `MultiDispatch` uses a non-compressing trie to order all its candidates by the parameter types, so that most of the candidates can be disregarded without any overhead. The trie also allows to lazily evaluate all rank 0 candidates before all rank 1, and so on.
 
 Considering all these candidates for every lookup gets quite slow and encumbering very quickly. For this reason, every `MultiDispatch` automatically caches any work done by previous calls when it comes to sorting and processing candidates. The cache maintains the laziness of the trie, and minimizes the work done at any given time.
 ## Default, Variadic, and Keyword parameters
-* If a candidate has positional parameters with a default value and a type annotation, and is not after a parameter without an annotation, it will be included as an optional value. If the value is `None`, `...`, or `NotImplemented`, it will be added to the type hint.
-* If a candidate has positional parameters with a default value, these parameters are ignored for the purpose of the candidate's parameter types. When called from a `MultiDispatch`, the parameter's values will always be the default.
+* If a candidate has positional parameters with a default value and a type annotation, it will be included as an optional value. If the default value is `None`, it will be added to the type hint.
+* If a candidate has positional parameters with a default value and no type annotation, or they are preceded by a default parameter without a type annotation, these parameters are ignored for the purpose of the candidate's parameter types. When called from a `MultiDispatch`, the parameter's values will always be the default.
 * If a candidate has a variadic positional parameter, it is ignored. When called from a `MultiDispatch`, its value will always be `()`.
 * If a candidate has keyword-only parameters, the parameter will not be considered for candidate types, it must either have a default value or be set when the `MultiDispatch` is called.
 * If a candidate has a variadic keyword parameter, it is ignored. When called from a `MultiDispatch`, its value will be according to the (type-ignored) keyword arguments.
@@ -142,13 +144,13 @@ type annotations can be of any type, or among any of these special values
 * `dyndis.Self`: used in implementors (see above), and is an error to use outside of them
 * `typing.Union`: accepts parameters of any of the enclosed type
 * `typing.Optional`: accepts the enclosed type or `None`
-* `typing.Any`: is considered a parent match (and not an exact match) for any type, including `object`
-* Any of typing's aliases and abstract classes such as `typing.List` or `typing.Sized`: equivalent to their origin type
+* `typing.Any`: is considered an up-cast match for any type, including `object`
+* Any of typing's aliases and abstract classes such as `typing.List` or `typing.Sized`: equivalent to their origin type (note that specialized aliases such as `typing.List[str]` are not valid)
 * `typing.TypeVar`: see below
 * `None`, `...`, `NotImplemented`: equivalent to their types
 * python 3.8 only: `typing.Literal` for singletons (`None`, `...`, `NotImplemented`): equivalent to their enclosed value
 
-In addition, the following types are automatically converted values:
+In addition, the following types are automatically converted (in compliance with various PEPs):
 * `float` -> `Union[int, float]`
 * `complex` -> `Union[int, float, complex]`
 * `bytes` -> `typing.ByteString`

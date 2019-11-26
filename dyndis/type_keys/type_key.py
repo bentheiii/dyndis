@@ -56,11 +56,20 @@ class TypeKey(ABC):
     __hash__ = None
 
 
+
+
 @lru_cache
 def type_key(t) -> TypeKey:
     """
     convert type annotation in a (possibly non-core) type key
     """
+    def is_type_like(ga):
+        # the best way I know of to check whether a generic alias is usable as class
+        try:
+            isinstance(None, ga)
+        except TypeError:
+            return False
+        return True
     if isinstance(t, TypeKey):
         return t
     if isinstance(t, type):
@@ -77,14 +86,13 @@ def type_key(t) -> TypeKey:
         return SingletonTypeKey(t)
 
     origin = get_origin(t)
-    # args = get_args(t)
 
     if Literal and origin is Literal:
         return LiteralTypeKey(t)
     if origin is Union:
         return UnionTypeKey(t)
-    if isinstance(origin, type) and t._special:
-        return OriginTypeKey(t)
+    if isinstance(origin, type) and is_type_like(t):
+        return type_key(origin)
     raise TypeError(f'type annotation {t} is not a type, give it a default to ignore it from the candidate list')
 
 
@@ -269,6 +277,7 @@ class TypeVarKey(CoreWrapperKey[TypeVar]):
     """
     A type key of a type variable
     """
+
     def priority_offset(self):
         return -1
 
@@ -388,15 +397,6 @@ class UnionTypeKey(SplittingTypeKey, WrapperKey):
 
     def split(self) -> Iterable[TypeKey]:
         return (type_key(a) for a in get_args(self.inner))
-
-
-class OriginTypeKey(SplittingTypeKey, WrapperKey):
-    """
-    A type key for typing.Generic wrapper types
-    """
-
-    def split(self) -> Iterable[TypeKey]:
-        return type_key(get_origin(self.inner)),
 
 
 if Literal:
