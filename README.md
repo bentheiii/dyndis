@@ -46,7 +46,7 @@ If two candidates have equal rank and priority, and neither is a strict sub-key 
 
 If a candidate returns `NotImplemented`, the next candidate in the order is tried.
 ## Tries and Caches
-`MultiDispatch` uses a non-compressing trie to order all its candidates by the parameter types, so that most of the candidates can be disregarded without any overhead. The trie also allows to lazily evaluate all rank 0 candidates before all rank 1, and so on.
+`dyndis` uses a non-compressing trie to order all its candidates by the parameter types, so that most of the candidates can be disregarded without any overhead. The trie also allows to lazily evaluate all rank 0 candidates before all rank 1, and so on.
 
 Considering all these candidates for every lookup gets quite slow and encumbering very quickly. For this reason, every `MultiDispatch` automatically caches any work done by previous calls when it comes to sorting and processing candidates. The cache maintains the laziness of the trie, and minimizes the work done at any given time.
 ## Default, Variadic, and Keyword parameters

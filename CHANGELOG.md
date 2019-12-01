@@ -5,6 +5,7 @@
 * generic alias checking method changed
 * README fixed and clarifications
 * ClassKeys now display as the class's name
+* `dyndis.Self` is now a TypeKey
 ### Fixed
 * Any's inclusion test
 ### Added

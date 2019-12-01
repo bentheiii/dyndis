@@ -3,7 +3,7 @@ from itertools import chain, product, permutations
 from typing import Callable, get_type_hints, Iterable, Tuple
 from warnings import warn
 
-from dyndis.type_keys.type_key import TypeKey, type_keys, CoreTypeKey, SelfKey
+from dyndis.type_keys.type_key import TypeKey, type_keys, CoreTypeKey, Self
 from dyndis.util import SubPriority
 
 try:
@@ -108,7 +108,7 @@ class Candidate:
             encountered_tvars = set()
             tk: TypeKey
             for i, tk in enumerate(types):
-                if tk is SelfKey:
+                if tk is Self:
                     if self_type_key is None:
                         raise Exception('cannot use dyndis.Self outside of implementors')
                     tk = types[i] = self_type_key

@@ -98,12 +98,12 @@ class RankedChildrenExhaustion:
             yield sk, self.owner[sk]
 
 
-
-
 class RankedChildrenTrie(Trie):
     """
     A specialized sub-class of Trie, that uses RankedChildren for its internal children dictionary
     """
+
     class RankedChildrenTrieNode(TrieNode):
         children_factory = RankedChildren
+
     node_factory = RankedChildrenTrieNode

@@ -40,12 +40,20 @@ class TrieNode(Generic[K, V]):
         return self.inner_value is not _blank
 
     def values(self, buffer: list):
+        """
+        iterate over the values of the node and its children
+        :param buffer: a key buffer to store the sub-keys visited up to the current value
+        """
         if self.has_value:
             yield self.value()
         for k, v in self.children.items():
             buffer.append(k)
             yield from v.values(buffer)
             buffer.pop()
+
+    def clear(self):
+        self.children.clear()
+        self.inner_value = _blank
 
 
 class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
@@ -139,6 +147,11 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         return self.pop(key)
 
     def _items(self):
+        """
+        iterate over the key-value pairs in the trie
+        note: the keys returned are all returned using the same list buffer, they must be copied or
+         converted before returning to the user
+        """
         buffer = []
         for v in self.root.values(buffer):
             yield buffer, v
@@ -155,8 +168,8 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
         return ((k, v) for (k, v) in self._items())
 
     def values(self):
-        return (v for (_,v) in self.items(None))
+        return self.root.values([])
 
     def clear(self):
-        self.root = self.node_factory()
+        self.root.clear()
         self._len = 0

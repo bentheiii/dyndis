@@ -13,8 +13,9 @@ try:
 except ImportError:
     Literal = None
 
+
 # a special Type Variable to designate the owner class
-Self = TypeVar('Self')
+# Self = TypeVar('Self')
 
 
 class MatchKind(IntEnum):
@@ -53,16 +54,13 @@ class TypeKey(ABC):
         # so we have to make TypeKey seem callable
         raise TypeError(f"can't call {type(self)}")
 
-    __hash__ = None
-
-
-
 
 @lru_cache
 def type_key(t) -> TypeKey:
     """
     convert type annotation in a (possibly non-core) type key
     """
+
     def is_type_like(ga):
         # the best way I know of to check whether a generic alias is usable as class
         try:
@@ -70,6 +68,7 @@ def type_key(t) -> TypeKey:
         except TypeError:
             return False
         return True
+
     if isinstance(t, TypeKey):
         return t
     if isinstance(t, type):
@@ -77,8 +76,6 @@ def type_key(t) -> TypeKey:
             return SplittingClassTypeKey(t)
         return ClassKey(t)
     if isinstance(t, TypeVar):
-        if t is Self:
-            return SelfKey
         return TypeVarKey(t)
     if t is Any:
         return AnyKey
@@ -210,7 +207,7 @@ class CoreTypeKey(TypeKey):
         pass
 
 
-class CoreWrapperKey(CoreTypeKey, WrapperKey[T], Generic[T], ABC):
+class CoreWrapperKey(WrapperKey[T], CoreTypeKey, Generic[T], ABC):
     """
     A mixin type key class or core and wrapper
     """
@@ -419,11 +416,14 @@ if Literal:
 
 # endregion
 
-class SelfKeyCls(TypeVarKey):
+class SelfKeyCls(TypeKey):
     """
     A special type key that evaluates to the candidate's self_type when the candidate is created
     """
-    __hash__ = None
+
+    def match(self, query_key: type, defined_type_var: Dict[TypeVar, ClassKey])\
+            -> Union[MatchKind, None, MatchException]:
+        raise TypeError('Self is a special type kay that must not actually be used')
 
 
-SelfKey = SelfKeyCls(Self)
+Self = SelfKeyCls()
