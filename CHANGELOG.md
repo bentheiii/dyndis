@@ -4,6 +4,14 @@
 * implementors now remove themselves from the class they are declared in
 * generic alias checking method changed
 * README fixed and clarifications
+* ClassKeys now display as the class's name
+### Fixed
+* Any's inclusion test
+### Added
+* `MultiDispatch.classmethod`
+## Enhanced
+* faster topological sorting
+* faster trie implementation (no recursion, less space)
 ## 0.0.4: 2019-11-25
 ### enhanced
 * search now first looks up and rules out all children by MRO, then iterates over all remaining children with slower issubclass check

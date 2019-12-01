@@ -2,19 +2,13 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from dyndis.trie import Trie
+from dyndis.trie import Trie, TrieNode
 
 _missing = object()
-object_subclass_check = type(object).__subclasscheck__
 
 
 @lru_cache
 def is_key_special(t):
-    """
-    a key is considered special if all its sub-classes will have in their MRO()
-    essentially:
-        is_key_special(A) <==> there may exist B s.t. `issubclass(B,A)` but `A not in B.__mro__`
-    """
     return not t.is_simple()
 
 
@@ -104,8 +98,12 @@ class RankedChildrenExhaustion:
             yield sk, self.owner[sk]
 
 
+
+
 class RankedChildrenTrie(Trie):
     """
     A specialized sub-class of Trie, that uses RankedChildren for its internal children dictionary
     """
-    children_factory = RankedChildren
+    class RankedChildrenTrieNode(TrieNode):
+        children_factory = RankedChildren
+    node_factory = RankedChildrenTrieNode

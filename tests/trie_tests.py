@@ -1,19 +1,24 @@
 from typing import Dict
 from unittest import TestCase
 
-from dyndis.trie import Trie
+from dyndis.trie import Trie, TrieNode
 
 import numpy as np
 
 
 class TrieTest(TestCase):
+    def assertNodeOk(self, node: TrieNode):
+        any_value = node.has_value
+        for child in node.children.values():
+            any_value |= self.assertNodeOk(child)
+        self.assertTrue(any_value)
+        return True
+
     def assertTrieOk(self, trie: Trie):
-        tot = int(trie.has_value())
-        for child in trie.children.values():
-            self.assertGreater(len(child), 0)
-            self.assertTrieOk(child)
-            tot += len(child)
-        self.assertEqual(tot, len(trie))
+        if len(trie) == 0:
+            self.assertFalse(trie.root.children)
+        else:
+            self.assertNodeOk(trie.root)
 
     def assertTrieEqual(self, trie: Trie, control: Dict):
         self.assertTrieOk(trie)

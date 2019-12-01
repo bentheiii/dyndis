@@ -272,6 +272,9 @@ class ClassKey(CoreWrapperKey[type]):
         """
         return type(self.inner).__subclasscheck__ is object_subclass_check
 
+    def __repr__(self):
+        return self.inner.__name__
+
 
 class TypeVarKey(CoreWrapperKey[TypeVar]):
     """
@@ -315,10 +318,10 @@ class AnyKeyCls(CoreWrapperKey[type(Any)]):
         return MatchKind.upcast
 
     def __le__(self, other):
-        return True
+        return other is self
 
     def __lt__(self, other):
-        return other is not self
+        return False
 
 
 AnyKey = AnyKeyCls()

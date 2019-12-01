@@ -8,7 +8,7 @@ class AmbiguityError(RuntimeError):
 
 
 class NoCandidateError(TypeError):
-    """An error indicating that a multidispatch has no applicable candidates"""
+    """An error indicating that a multidispatch has no applicable candidates, or that all candidates failed"""
 
     def __init__(self, args):
         super().__init__('no valid candidates for argument types <' + ", ".join(type(a).__name__ for a in args) + '>')

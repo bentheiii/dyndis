@@ -23,27 +23,23 @@ def cmp_typeset(lhs: Tuple[TypeKey, ...], rhs: Tuple[TypeKey, ...]):
     """
     ret = 0
     for left, right in zip(lhs, rhs):
-        if ret < 0:
-            try:
-                cmp = left <= right
-            except TypeError:
-                return 0
-            if not cmp:
-                return 0
-        elif ret > 0:
-            try:
-                cmp = right <= left
-            except TypeError:
-                return 0
-            if not cmp:
-                return 0
-        else:
+        if ret == 0:
             try:
                 if left < right:
                     ret = -1
                 elif right < left:
                     ret = 1
             except TypeError:
+                return 0
+        else:
+            try:
+                if ret < 0:
+                    cmp = left <= right
+                else:
+                    cmp = right <= left
+            except TypeError:
+                return 0
+            if not cmp:
                 return 0
     return ret
 
@@ -67,16 +63,25 @@ class TopologicalOrder(AbstractSet[Container]):
         add a candidate to the order
         :param new_cand: the candidate to add
         """
-        to = TopologicalRanking(set(), set())
-        for existing_cand, eto in self.inner.items():
-            cmp = cmp_typeset(new_cand.types, existing_cand.types)
+        new_to = TopologicalRanking(set(), set())
+        compare_queue = set(self.inner)
+        while compare_queue:
+            old_cand = compare_queue.pop()
+            old_to = self.inner[old_cand]
+            cmp = cmp_typeset(new_cand.types, old_cand.types)
             if cmp == 1:
-                eto.after.add(new_cand)
-                to.previous.add(existing_cand)
+                # new > old
+                old_to.after.add(new_cand)
+                new_to.previous.add(old_cand)
+                # for every A in old.previous:  A <= old <= new
+                compare_queue.difference_update(old_to.previous)
             elif cmp == -1:
-                eto.previous.add(new_cand)
-                to.after.add(existing_cand)
-        self.inner[new_cand] = to
+                # new < existing
+                old_to.previous.add(new_cand)
+                new_to.after.add(old_cand)
+                # for every A in old.after:  A >= old >= new
+                compare_queue.difference_update(old_to.after)
+        self.inner[new_cand] = new_to
 
     def sorted_layers(self):
         """

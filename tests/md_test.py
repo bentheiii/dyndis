@@ -23,6 +23,88 @@ class GeneralTest(TestCase):
         self.assertEqual(foo(4, set(range(6))), 24)
         self.assertEqual(foo(4, set((1, 2))), 8)
 
+    def test_topology_any(self):
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(a: Any):
+            return 0
+
+        @foo.add_func()
+        def foo(a: object):
+            return 1
+
+        @foo.add_func()
+        def foo(b: Sequence):
+            return 2
+
+        @foo.add_func()
+        def foo(b: str):
+            return 3
+
+        self.assertEqual(foo(4), 1)
+        self.assertEqual(foo((1, 2, 3)), 2)
+        self.assertEqual(foo('a'), 3)
+        self.assertEqual(foo(object()), 1)
+
+    @staticmethod
+    def make_hierarchy(n):
+        base = object
+        ret = []
+        for level in range(n):
+            class Ret(base):
+                depth = level
+            Ret.__qualname__ = Ret.__name__ = f'hierarchy[{level}]'
+
+            ret.append(Ret)
+            base = Ret
+        return ret
+
+    def test_topology_many(self):
+        foo = MultiDispatch('foo')
+        hierarchy = self.make_hierarchy(10)
+        for h in hierarchy:
+            def foo_(i: h):
+                return
+
+            foo_.depth = h.depth
+            foo.add_func(foo_)
+        cands = list(foo.candidates())
+        self.assertEqual(len(cands), 10)
+        for i, c in enumerate(cands):
+            self.assertEqual(c.func.depth, 9 - i)
+
+    def test_topology_multid(self):
+        foo = MultiDispatch('foo')
+        hierarchy = self.make_hierarchy(6)
+        coordinates = (
+            (3, 1, 3),
+            (4, 4, 4),
+            (2, 3, 2),
+            (2, 2, 3),
+            (2, 2, 4),
+            (4, 1, 1),
+            (0, 0, 3),
+            (0, 4, 4)
+        )
+        funcs = []
+        for c in coordinates:
+            h0, h1, h2 = (hierarchy[i] for i in c)
+
+            def foo_(i0: h0, i1: h1, i2: h2):
+                return
+            foo_.ind = len(funcs)
+            funcs.append(foo_)
+
+            foo.add_func(foo_)
+        cands = foo.candidates_for_types(hierarchy[-1], hierarchy[-1], hierarchy[-1])
+        cands = [[c.func.ind for c in l] for l in cands]
+        self.assertEqual(len(cands), 4)
+        self.assertCountEqual(cands[0], [1])
+        self.assertCountEqual(cands[1], [0, 2, 4, 5, 7])
+        self.assertCountEqual(cands[2], [3])
+        self.assertCountEqual(cands[3], [6])
+
 
 class DefaultTest(TestCase):
     def test_simple(self):
@@ -339,3 +421,26 @@ class TypeVarTest(TestCase):
 
         with self.assertRaises(AmbiguityError):
             foo(1)
+
+    def test_cmp_pos(self):
+        T = TypeVar('T')
+
+        class A: pass
+
+        class B(A): pass
+
+        class C(B): pass
+
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(x: T, a: A):
+            return 0
+
+        @foo.add_func()
+        def foo(x: T, b: B):
+            return 1
+
+        self.assertEqual(foo(object(), A()), 0)
+        self.assertEqual(foo(object(), B()), 1)
+        self.assertEqual(foo(object(), C()), 1)

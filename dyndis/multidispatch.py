@@ -3,21 +3,22 @@ from __future__ import annotations
 from functools import partial, lru_cache
 from itertools import chain
 from numbers import Number
-from typing import Dict, Tuple, List, Callable, Union, Iterable, TypeVar, Any, NamedTuple, Optional
+from typing import Dict, Tuple, List, Callable, Union, Iterable, TypeVar, Any, NamedTuple, Optional, Iterator
 
 from sortedcontainers import SortedDict, SortedList
 
 from dyndis.candidate import Candidate
 from dyndis.topological_ordering import TopologicalOrder
-from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod
+from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod, MultiDispatchClassMethod
 from dyndis.exceptions import NoCandidateError, AmbiguityError
 from dyndis.implementor import Implementor
 from dyndis.ranked_children import RankedChildrenTrie, RankedChildrenExhaustion
-from dyndis.trie import Trie
+from dyndis.trie import TrieNode, Trie
 from dyndis.type_keys.type_key import TypeVarKey, ClassKey, TypeKey, MatchException, MatchKind
 from dyndis.util import RawReturnValue
 
 CandTrie = Trie[TypeKey, Dict[Number, Candidate]]
+CandTrieNode = TrieNode[TypeKey, Dict[Number, Candidate]]
 
 RawNotImplemented = RawReturnValue(NotImplemented)
 
@@ -84,7 +85,7 @@ class QueuedVisit(NamedTuple):
     """
     rank: int
     depth: int
-    trie: CandTrie
+    trie: CandTrieNode
     var_dict: Dict[TypeVar, type]
 
 
@@ -109,7 +110,9 @@ class CachedSearch:
         self.query = key
 
         self.visitation_queue = SortedList(key=lambda x: -x.rank)
-        self.visitation_queue.add(QueuedVisit(0, 0, owner.candidate_trie, {}))
+        ct = owner.candidate_trie
+        r: CandTrieNode = ct.root
+        self.visitation_queue.add(QueuedVisit(0, 0, r, {}))
         self.sorted = []
 
     def advance(self):
@@ -264,15 +267,20 @@ class MultiDispatch:
         :param symmetric: if set to true, the permutations of all the candidates are added as well
         :param func: the function to used
         """
+
         if not func:
-            return partial(self.add_func, priority, symmetric)
+            if callable(priority):
+                func = priority
+                priority = 0
+            else:
+                return partial(self.add_func, priority, symmetric)
         cands = Candidate.from_func(priority, func)
         if symmetric:
             cands = chain.from_iterable(c.permutations() for c in cands)
         self.add_candidates(cands)
         return self
 
-    def _yield_candidates(self, types):
+    def _yield_layers(self, types):
         """
         yield all the relevant candidates for a type tuple, sorted first by number of upcasts required (ascending),
         and second by priority (descending)
@@ -288,10 +296,7 @@ class MultiDispatch:
             if not cache:
                 cache = sub_cache[types] = CachedSearch(self, types)
 
-        for layer in cache:
-            if len(layer) != 1:
-                raise AmbiguityError(layer, types)
-            yield layer[0]
+        return cache
 
     def get(self, args, kwargs, default=None):
         """
@@ -303,7 +308,10 @@ class MultiDispatch:
         :param default: the value to return if all candidates are exhausted
         """
         types = tuple(type(a) for a in args)
-        for c in self._yield_candidates(types):
+        for layer in self.candidates_for_types(*types):
+            if len(layer) != 1:
+                raise AmbiguityError(layer, types)
+            c = layer[0]
             ret = c.func(*args, **kwargs)
             if ret is not NotImplemented:
                 return RawReturnValue.unwrap(ret)
@@ -332,6 +340,13 @@ class MultiDispatch:
         """
         return MultiDispatchMethod(self)
 
+    def classmethod(self):
+        """
+        :return: an adapter for the multidispatch to be used as a class method, raising error if no candidates match,
+         and setting the multidispatch's name if necessary
+        """
+        return MultiDispatchClassMethod(self)
+
     def staticmethod(self):
         """
         :return: an adapter for the multidispatch to be used as a static method, raising error if no candidates match,
@@ -345,7 +360,13 @@ class MultiDispatch:
         """
         return Implementor(self).implementor(*args, **kwargs)
 
-    def candidates(self):
+    def candidates_for_types(self, *arg_types) -> Iterator[List[Candidate]]:
+        """
+        get candidate layers as they are attempted for a set of argument types
+        """
+        return iter(self._yield_layers(arg_types))
+
+    def candidates(self) -> Iterator[Candidate]:
         """
         get all the candidates defined in the multidispatch.
          Candidates are sorted by their priority, then topologically.

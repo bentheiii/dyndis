@@ -33,7 +33,15 @@ class MultiDispatchOp(MultiDispatchDelegate):
 _no_answer = object()
 
 
-class MultiDispatchMethod(MultiDispatchDelegate):
+class MultiDispatchRaisingDelegate(MultiDispatchDelegate):
+    def __call__(self, *args, **kwargs):
+        ret = self.md.get(args, kwargs, default=_no_answer)
+        if ret is _no_answer:
+            raise NoCandidateError(args)
+        return ret
+
+
+class MultiDispatchMethod(MultiDispatchRaisingDelegate):
     """
     A method adapter for a MultiDispatch
     """
@@ -43,23 +51,20 @@ class MultiDispatchMethod(MultiDispatchDelegate):
             return partial(self.__call__, instance)
         return self
 
-    def __call__(self, *args, **kwargs):
-        ret = self.md.get(args, kwargs, default=_no_answer)
-        if ret is _no_answer:
-            raise NoCandidateError(args)
-        return ret
+
+class MultiDispatchClassMethod(MultiDispatchRaisingDelegate):
+    """
+    A static method adapter for a MultiDispatch
+    """
+
+    def __get__(self, instance, owner):
+        return partial(self.__call__, owner)
 
 
-class MultiDispatchStaticMethod(MultiDispatchDelegate):
+class MultiDispatchStaticMethod(MultiDispatchRaisingDelegate):
     """
     A static method adapter for a MultiDispatch
     """
 
     def __get__(self, instance, owner):
         return self
-
-    def __call__(self, *args, **kwargs):
-        ret = self.md.get(args, kwargs, default=_no_answer)
-        if ret is _no_answer:
-            raise NoCandidateError(args)
-        return ret

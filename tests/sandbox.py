@@ -23,4 +23,4 @@ def foo(b: Union[T, T], a: TI):
 
 
 print(list(foo.candidates()))
-print(", ".join(str(c) for c in foo.candidates()))
+print(", ".join(str(c[0]) for c in foo.candidates_for(int)))
