@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Union, Dict, TypeVar, Hashable, Any, Iterable, Optional, Tuple, ByteString, Generic, MutableSet
+from itertools import combinations
+from typing import Union, Dict, TypeVar, Hashable, Any, Iterable, Optional, Tuple, ByteString, Generic, MutableSet, \
+    Set, Iterator, Type, Protocol
 
 from abc import abstractmethod, ABC
 from enum import IntEnum
@@ -12,10 +14,6 @@ try:
     from typing import Literal
 except ImportError:
     Literal = None
-
-
-# a special Type Variable to designate the owner class
-# Self = TypeVar('Self')
 
 
 class MatchKind(IntEnum):
@@ -31,6 +29,17 @@ class MatchException(RuntimeError):
     An error that occurs during a match, and might be delayed until its rank is reached
     """
     rank_offset: int
+
+
+class AmbiguousBindingError(MatchException):
+    """An error indicating that a type variable could not find a single type to bind to"""
+    rank_offset = MatchKind.upcast
+
+    def __init__(self, typevar, subclass, unrelated_classes):
+        super().__init__(f'type variable {typevar} must up-cast type {subclass} to one of its constrained types,'
+                         f' but it is a subclass of multiple non-related constraints: {unrelated_classes}'
+                         f' (consider adding {subclass} as an explicit constraint in {typevar},'
+                         f' or a specialized overload for {subclass})')
 
 
 class TypeKey(ABC):
@@ -206,6 +215,17 @@ class CoreTypeKey(TypeKey):
         """
         pass
 
+    @abstractmethod
+    def perfect_match_types(self, defined_type_var) -> Set[type]:
+        pass
+
+    @abstractmethod
+    def upcast_match_types(self, defined_type_var) -> Set[type]:
+        pass
+
+    def error_types(self, defined_type_var) -> Set[Tuple[type, Type[MatchException]]]:
+        return set()
+
 
 class CoreWrapperKey(WrapperKey[T], CoreTypeKey, Generic[T], ABC):
     """
@@ -226,10 +246,23 @@ class CoreWrapperKey(WrapperKey[T], CoreTypeKey, Generic[T], ABC):
 object_subclass_check = type(object).__subclasscheck__
 
 
+def iter_subclasses(cls: type) -> Iterator[type]:
+    if ClassKey.is_simple_class(cls):
+        return cls.__subclasses__()
+    return (c for c in object.__subclasses__() if c != cls and issubclass(c, cls))
+
+
 class ClassKey(CoreWrapperKey[type]):
     """
     A type key of a superclass
     """
+
+    @staticmethod
+    def is_simple_class(cls):
+        mcls = type(cls)
+        if mcls is type(Protocol):
+            return not cls._is_protocol and mcls.__subclasscheck__ is type(Protocol).__subclasscheck__
+        return mcls.__subclasscheck__ is object_subclass_check
 
     def match(self, query_key: type, defined_type_var) -> Union[MatchKind, None, Exception]:
         if query_key is self.inner:
@@ -256,6 +289,8 @@ class ClassKey(CoreWrapperKey[type]):
         True
         >>> ClassKey(bool).is_simple()
         True
+        >>> ClassKey(object).is_simple()
+        True
         >>> class A: pass
         >>> ClassKey(A).is_simple()
         True
@@ -266,11 +301,32 @@ class ClassKey(CoreWrapperKey[type]):
         >>> class B(ABC): pass
         >>> ClassKey(B).is_simple()
         False
+        >>> class P(Protocol):
+        ...  @abstractmethod
+        ...  def foo(self): ...
+        >>> class C(P): pass
+        >>> ClassKey(C).is_simple()
+        True
+        >>> class S(ABC):
+        ...  @abstractmethod
+        ...  def foo(self): ...
+        >>> class D(S): pass
+        >>> ClassKey(D).is_simple()
+        False
+        >>> class E(P, Protocol): pass
+        >>> ClassKey(E).is_simple()
+        False
         """
-        return type(self.inner).__subclasscheck__ is object_subclass_check
+        return self.is_simple_class(self.inner)
 
     def __repr__(self):
         return self.inner.__name__
+
+    def perfect_match_types(self, defined_type_var) -> Set[type]:
+        return {self.inner}
+
+    def upcast_match_types(self, defined_type_var) -> Set[type]:
+        return set(iter_subclasses(self.inner))
 
 
 class TypeVarKey(CoreWrapperKey[TypeVar]):
@@ -281,7 +337,8 @@ class TypeVarKey(CoreWrapperKey[TypeVar]):
     def priority_offset(self):
         return -1
 
-    def match(self, query_key: type, defined_type_var: Dict[TypeVar, ClassKey]) -> Union[MatchKind, None, Exception]:
+    def match(self, query_key: type, defined_type_var: Dict[TypeVar, ClassKey]) -> Union[
+        MatchKind, None, MatchException]:
         return defined_type_var[self.inner].match(query_key, defined_type_var)
 
     def __le__(self, other):
@@ -306,6 +363,34 @@ class TypeVarKey(CoreWrapperKey[TypeVar]):
         super().introduce(encountered_type_variables)
         encountered_type_variables.add(self.inner)
 
+    def perfect_match_types(self, defined_type_var) -> Set[type]:
+        dtv = defined_type_var.get(self.inner)
+        if dtv:
+            return dtv.perfect_match_types(defined_type_var)
+        if self.inner.__constraints__:
+            return set(self.inner.__constraints__)
+        if self.inner.__bound__:
+            return {*iter_subclasses(self.inner.__bound__), self.inner.__bound__}
+        return set(object.__subclasses__())
+
+    def upcast_match_types(self, defined_type_var) -> Set[type]:
+        dtv = defined_type_var.get(self.inner)
+        if dtv:
+            return dtv.upcast_match_types(defined_type_var)
+        if self.inner.__constraints__:
+            return set.union(*(iter_subclasses(c) for c in self.inner.__constraints__))
+        return set()
+
+    def error_types(self, defined_type_var) -> Set[Tuple[type, Type[MatchException]]]:
+        if self.inner.__constraints__:
+            ret = set()
+            cs = [set(iter_subclasses(i)) for i in self.inner.__constraints__]
+            for i, j in combinations(cs, 2):
+                intersection = (i.intersection(j)).difference(self.inner.__constraints__)
+                ret.update((x, AmbiguousBindingError) for x in intersection)
+            return ret
+        return set()
+
 
 class AnyKeyCls(CoreWrapperKey[type(Any)]):
     def __init__(self):
@@ -319,6 +404,12 @@ class AnyKeyCls(CoreWrapperKey[type(Any)]):
 
     def __lt__(self, other):
         return False
+
+    def perfect_match_types(self, defined_type_var) -> Set[type]:
+        return set()
+
+    def upcast_match_types(self, defined_type_var) -> Set[type]:
+        return set(object.__subclasses__())
 
 
 AnyKey = AnyKeyCls()
@@ -421,7 +512,7 @@ class SelfKeyCls(TypeKey):
     A special type key that evaluates to the candidate's self_type when the candidate is created
     """
 
-    def match(self, query_key: type, defined_type_var: Dict[TypeVar, ClassKey])\
+    def match(self, query_key: type, defined_type_var: Dict[TypeVar, ClassKey]) \
             -> Union[MatchKind, None, MatchException]:
         raise TypeError('Self is a special type kay that must not actually be used')
 
