@@ -1,8 +1,8 @@
 from abc import abstractmethod
 from itertools import chain, product
-from typing import TypeVar, Dict, MutableSet, Callable, FrozenSet
+from typing import TypeVar, Dict, MutableSet, Callable
 
-from dyndis.type_keys.type_key import CoreTypeKey, ClassKey, type_key, type_keys, within_constraints
+from dyndis.type_keys.type_key import CoreTypeKey, ClassKey, type_key, within_constraints
 
 
 class UnboundDelegate(CoreTypeKey):
@@ -86,12 +86,6 @@ class UnboundDelegate(CoreTypeKey):
         missing = [tv for tv in self.type_vars if tv not in encountered_type_variables]
         if missing:
             raise OrphanDelegateError(self, missing)
-
-    def match_types(self, defined_type_var) -> FrozenSet[type]:
-        splitting = self.get(defined_type_var)
-        return frozenset.union(
-            *(s.match_types(defined_type_var) for s in type_keys(splitting))
-        )
 
 
 _raise = object()

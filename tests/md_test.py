@@ -109,6 +109,57 @@ class GeneralTest(TestCase):
         self.assertCountEqual(cands[2], [3])
         self.assertCountEqual(cands[3], [6])
 
+    def test_topology_prio(self):
+        foo = MultiDispatch()
+
+        class A0: pass
+
+        class A1: pass
+
+        class A(A0, A1): pass
+
+        class B0: pass
+
+        class B1: pass
+
+        class B(B0, B1): pass
+
+        log = []
+
+        @foo.add_func(1)
+        def foo(a: A):
+            log.append(0)
+            return NotImplemented
+
+        @foo.add_func()
+        def foo(b: B):
+            log.append(1)
+            return NotImplemented
+
+        @foo.add_func(2)
+        def foo(a0: A0):
+            log.append(2)
+            return NotImplemented
+
+        @foo.add_func(1)
+        def foo(b0: B0):
+            log.append(3)
+            return NotImplemented
+
+        @foo.add_func()
+        def foo(a1: A1):
+            log.append(4)
+            return NotImplemented
+
+        @foo.add_func(-1)
+        def foo(b1: B1):
+            log.append(5)
+
+        class C(A, B): pass
+
+        self.assertIsNone(foo(C()))
+        self.assertSequenceEqual(log, range(6))
+
 
 class DefaultTest(TestCase):
     def test_simple(self):
@@ -429,6 +480,28 @@ class TypeVarTest(TestCase):
 
         with self.assertRaises(NoCandidateError):
             foo(B(), 15)
+
+    def test_possibilities(self):
+        class A:
+            Y = Union[int, str]
+
+        class B:
+            Y = str
+
+        T = TypeVar('T', A, B)
+        TY = UnboundAttr(T, 'Y')
+
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(x: T, y: TY):
+            return 0
+
+        @foo.add_func()
+        def foo(x: T, t: bool):
+            return 1
+
+        self.assertEqual(foo(A(), True), 1)
 
     def test_cmp(self):
         T = TypeVar('T')

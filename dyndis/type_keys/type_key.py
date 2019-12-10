@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from functools import lru_cache
-from itertools import combinations
-from typing import Union, Dict, TypeVar, Hashable, Any, Iterable, Optional, Tuple, ByteString, Generic, MutableSet, \
-    Type, FrozenSet
+from typing import Union, Dict, TypeVar, Hashable, Any, Iterable, Optional, Tuple, ByteString, Generic, MutableSet
 from abc import abstractmethod, ABC
 
 from dyndis.util import get_args, get_origin, liberal_cache
@@ -178,34 +175,12 @@ class CoreTypeKey(TypeKey):
         """
         pass
 
-    def priority_offset(self):
-        """
-        :return: a number to add to the priority of a candidate
-        note that for each candidate, this method will only be called once, even if the type key is used multiple times
-        """
-        return 0
-
     @abstractmethod
     def __repr__(self):
         """
         Core type keys appear in candidate representations, so they must look like the annotation used ot create them
         """
         pass
-
-    @abstractmethod
-    def match_types(self, defined_type_var) -> FrozenSet[type]:
-        """
-        :param defined_type_var: a dictionary mapping already bound type variables to their associated types
-        :return: all the types that will result in a match
-        """
-        pass
-
-    def error_types(self, defined_type_var) -> FrozenSet[Tuple[type, Type[MatchException]]]:
-        """
-        :param defined_type_var: a dictionary mapping already bound type variables to their associated types
-        :return: all the types that will result in an error, as well as the error to be raised
-        """
-        return frozenset()
 
 
 class CoreWrapperKey(WrapperKey[T], CoreTypeKey, Generic[T], ABC):
@@ -215,34 +190,6 @@ class CoreWrapperKey(WrapperKey[T], CoreTypeKey, Generic[T], ABC):
 
     def __repr__(self):
         return repr(self.inner)
-
-
-object_subclass_check = type(object).__subclasscheck__
-if Protocol:
-    protocol_subclass_check = type(Protocol).__subclasscheck__
-    mprotocol = type(Protocol)
-
-
-@lru_cache(None)
-def all_subclasses(cls: type) -> FrozenSet[type]:
-    def is_simple_class(cls):
-        mcls = type(cls)
-        if Protocol and mcls is mprotocol:
-            return not cls._is_protocol and mcls.__subclasscheck__ is protocol_subclass_check
-        return mcls.__subclasscheck__ is object_subclass_check
-
-    if is_simple_class(cls):
-        ret = set()
-        stack = [cls]
-        while stack:
-            s = stack.pop()
-            if s in ret:
-                continue
-            ret.add(s)
-            for scls in type.__subclasses__(s):
-                stack.extend(all_subclasses(scls))
-        return frozenset(ret)
-    return frozenset(c for c in all_subclasses(object) if issubclass(c, cls))
 
 
 def within_constraints(constraints, other, strict):
@@ -312,9 +259,6 @@ class ClassKey(CoreWrapperKey[type]):
     def __repr__(self):
         return self.inner.__name__
 
-    def match_types(self, defined_type_var) -> FrozenSet[type]:
-        return all_subclasses(self.inner)
-
 
 class TypeVarKey(CoreWrapperKey[TypeVar]):
     """
@@ -348,24 +292,6 @@ class TypeVarKey(CoreWrapperKey[TypeVar]):
         super().introduce(encountered_type_variables)
         encountered_type_variables.add(self.inner)
 
-    def match_types(self, defined_type_var) -> FrozenSet[type]:
-        dtv = defined_type_var.get(self.inner)
-        if dtv:
-            return dtv.match_types(defined_type_var)
-        if self.inner.__constraints__:
-            return frozenset.union(*(all_subclasses(c) for c in self.inner.__constraints__))
-        return all_subclasses(self.inner.__bound__ or object)
-
-    def error_types(self, defined_type_var) -> FrozenSet[Tuple[type, Type[MatchException]]]:
-        if self.inner.__constraints__:
-            ret = set()
-            cs = [set(all_subclasses(i)) for i in self.inner.__constraints__]
-            for i, j in combinations(cs, 2):
-                intersection = (i.intersection(j)).difference(self.inner.__constraints__)
-                ret.update((x, AmbiguousBindingError) for x in intersection)
-            return frozenset(ret)
-        return frozenset()
-
 
 class AnyKeyCls(CoreWrapperKey[type(Any)]):
     """
@@ -388,9 +314,6 @@ class AnyKeyCls(CoreWrapperKey[type(Any)]):
 
     def __gt__(self, other):
         return other is not self
-
-    def match_types(self, defined_type_var) -> FrozenSet[type]:
-        return all_subclasses(object)
 
 
 AnyKey = AnyKeyCls()
@@ -424,15 +347,19 @@ class SplittingTypeKey(TypeKey):
         return False
 
     def __lt__(self, other):
-        s = self.split()
-        if within_constraints(s, other, True):
+        split = list(self.split())
+        if within_constraints(split, other, True):
             return True
+        if any(other <= s for s in split):
+            return False
         return NotImplemented
 
     def __le__(self, other):
-        s = self.split()
-        if within_constraints(s, other, False):
+        split = self.split()
+        if within_constraints(split, other, False):
             return True
+        if any(other < s for s in split):
+            return False
         return NotImplemented
 
     __hash__ = None

@@ -7,7 +7,6 @@
 * ClassKeys now display as the class's name
 * `dyndis.Self` is now a TypeKey
 * Major changes to overload resolution
-* `Multidispatch.potential_conflicts`
 ### Fixed
 * typekey's inclusion test
 ### Added

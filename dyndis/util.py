@@ -75,12 +75,10 @@ class SubPriority:
         return hash(self.key)
 
 
-class Bottom:
-    def __init__(self):
-        raise Exception('this class cannot be instantiated')
-
-
 def liberal_cache(func):
+    """
+    create a memoized function that simply ignores un-hashable values
+    """
     cache = {}
 
     def ret(arg):

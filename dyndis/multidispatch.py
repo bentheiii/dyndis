@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 from functools import partial
-from itertools import chain, combinations, product
+from itertools import chain
 from typing import Dict, Tuple, List, Callable, Union, Iterable, Optional, Iterator
 
-from sortedcontainers import SortedSet
+from sortedcontainers import SortedList
 
-from dyndis.ambiguity_set import PotentialConflictSet
 from dyndis.candidate import Candidate
 from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod, MultiDispatchClassMethod
 from dyndis.exceptions import NoCandidateError, AmbiguityError
 from dyndis.implementor import Implementor
 from dyndis.topological_set import TopologicalSet
-from dyndis.type_keys.type_key import MatchException, TypeVarKey, class_type_key, all_subclasses
+from dyndis.type_keys.type_key import MatchException
 from dyndis.util import RawReturnValue
 
 RawNotImplemented = RawReturnValue(NotImplemented)
@@ -35,6 +34,10 @@ class CachedSearch:
         self.sorted = []
 
     def advance(self):
+        """
+        advance the search by one layer, and cache the results
+        :return: the new candidates added to the sorted list
+        """
         layer: Optional[List[Candidate]] = next(self.layer_iter, None)
         if layer is None:
             self.layer_iter = None
@@ -70,9 +73,11 @@ class MultiDispatch:
     """
 
     class TieredTopologicalSet(TopologicalSet):
-        @staticmethod
-        def gt_factory():
-            return SortedSet(key=lambda x: x.inner.priority)
+        """
+        A topologicalset class that sorts each layer by its priority
+        """
+        def layer_factory(self):
+            return SortedList(key=lambda x: x.priority)
 
     def __init__(self, name: str = None, doc: str = None):
         """
@@ -138,7 +143,6 @@ class MultiDispatch:
         :param symmetric: if set to true, the permutations of all the candidates are added as well
         :param func: the function to used
         """
-
         if not func:
             if callable(priority):
                 func = priority
@@ -248,95 +252,3 @@ class MultiDispatch:
         if self.__name__:
             return f'<MultiDispatch {self.__name__}>'
         return super().__str__()
-
-    def potential_conflicts(self, clear_subclass_cache = True) -> PotentialConflictSet:
-        def sub_layers(layer: Iterable[Candidate]):
-            s_layer = []
-            for i in layer:
-                if s_layer and i.priority != s_layer[-1].priority:
-                    yield s_layer
-                    s_layer = [i]
-                else:
-                    s_layer.append(i)
-            if s_layer:
-                yield s_layer
-
-        def conf_layer(layer: Iterable[Candidate], ret: PotentialConflictSet):
-            def get_ambiguities(types0, types1, dict0, dict1):
-                if not types0:
-                    assert not types1
-                    return [[]]
-
-                t0, *r0 = types0
-                t1, *r1 = types1
-                m0 = t0.match_types(dict0)
-                m1 = t1.match_types(dict1)
-                amb_set = m0 & m1
-                if not amb_set:
-                    return None
-                t0_undefined = isinstance(t0, TypeVarKey) and t0.inner not in dict0
-                t1_undefined = isinstance(t1, TypeVarKey) and t1.inner not in dict1
-                if not (t0_undefined or t1_undefined):
-                    sa = get_ambiguities(r0, r1, dict0, dict1)
-                    if sa is None:
-                        return None
-                    ret = [[amb_set, *s] for s in sa]
-                else:
-                    ret = []
-                    for a, b in product(m0, m1):
-                        if t0_undefined:
-                            dict0[t0.inner] = class_type_key(a)
-                        if t1_undefined:
-                            dict1[t1.inner] = class_type_key(b)
-                        sa = get_ambiguities(r0, r1, dict0, dict1)
-                        if sa is None:
-                            continue
-                        ret.extend([{a}, *s] for s in sa)
-                    if t0_undefined:
-                        del dict0[t0.inner]
-                    if t1_undefined:
-                        del dict1[t1.inner]
-                return ret
-
-            def get_errors(types, dict_, i=0):
-                if not types:
-                    return
-                t, *r = types
-                err_types = t.error_types(dict_)
-                if err_types:
-                    yield i, err_types, dict(dict_)
-                    return
-
-                t_undefined = isinstance(t, TypeVarKey) and t.inner not in dict_
-                if t_undefined:
-                    matches = t.match_types(dict_)
-                    for m in matches:
-                        dict_[t.inner] = class_type_key(m)
-                        yield from get_errors(r, dict_, i+1)
-                    del dict_[t.inner]
-                else:
-                    yield from get_errors(r, dict_, i+1)
-
-            def process_err_cand(cand):
-                errs = list(get_errors(cand.types, {}, 0))
-                for i, et, dvr in errs:
-                    for t, ex_t in et:
-                        ret.add_error(i, t, ex_t, dvr, c0)
-
-            for s_layer in sub_layers(layer):
-                for c0, c1 in combinations(s_layer, 2):
-                    process_err_cand(c0)
-                    for amb in get_ambiguities(c0.types, c1.types, {}, {}) or ():
-                        ret.add_ambiguities(tuple(amb), {c0, c1})
-                process_err_cand(s_layer[-1])
-
-        ret = PotentialConflictSet(self)
-
-        for ts in self.candidate_topsets.values():
-            for layer in ts.layers():
-                conf_layer(layer, ret)
-
-        if clear_subclass_cache:
-            all_subclasses.cache_clear()
-
-        return ret

@@ -97,6 +97,7 @@ class CompoundNamespaces:
     """
     A base class for combining namespaces
     """
+
     def __init__(self, parts):
         self._parts = parts
 
@@ -114,6 +115,7 @@ class StackedNamespaces(CompoundNamespaces):
     """
     A compound namespace where the last namespace has precedence
     """
+
     def __init__(self, parts):
         super().__init__(parts[::-1])
 
@@ -130,6 +132,7 @@ class JoinedNamespaces(CompoundNamespaces):
     """
     A compound namespace where the no one has precedence
     """
+
     def __getattr__(self, item):
         ret = set()
         for p in self._parts:

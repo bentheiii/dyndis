@@ -1,23 +1,21 @@
 from __future__ import annotations
 
 from itertools import chain
-from types import new_class
-from typing import Callable, Generic, TypeVar, Set, Union, Dict, Iterable, MutableSet
+from typing import Generic, TypeVar, Set, Union, Dict, Iterable, MutableSet
 
 T = TypeVar('T')
 
 
-class NodeSuper:
-    lt_factory = set
-    gt_factory = set
+class TopologicalNode(Generic[T]):
+    """
+    A node of an element in a topological set
+    """
 
-
-class TopologicalNode(Generic[T], NodeSuper):
     def __init__(self, inner: T):
         self.inner = inner
         # rule: if root is in lt, then len(gt) == 1
-        self.lt: Set[Union[TopologicalNode[T], TopologicalRootNode[T]]] = self.lt_factory()
-        self.gt: Set[TopologicalNode[T]] = self.gt_factory()
+        self.lt: Set[Union[TopologicalNode[T], TopologicalRootNode[T]]] = set()
+        self.gt: Set[TopologicalNode[T]] = set()
 
     def __lt__(self, other):
         if not isinstance(other, type(self)):
@@ -25,29 +23,36 @@ class TopologicalNode(Generic[T], NodeSuper):
         return self.inner < other.inner
 
 
-class TopologicalRootNode(Generic[T], NodeSuper):
+class TopologicalRootNode(Generic[T]):
+    """
+    The root node of a topological set. This is a handy wrapper for a set, allowing it to be used as a node
+    """
+
     def __init__(self):
-        self.gt: Set[TopologicalNode[T]] = self.gt_factory()
+        self.gt: Set[TopologicalNode[T]] = set()
 
     def __lt__(self, other):
         return True
 
 
+# todo use a trie to speed up candidate filtering?
+
 class TopologicalSet(MutableSet[T], Generic[T]):
-    node_factory: Callable[[], TopologicalNode] = TopologicalNode
-    root_factory = TopologicalRootNode
+    """
+    A set that allows for quick topological sorting of its elements, supporting weakly ordered elements
+    """
 
     def __init__(self, arg=()):
-        self.root = self.root_factory()
+        self.root = TopologicalRootNode()
         self._len = 0
         for a in arg:
             self.add(a)
 
     def add(self, x) -> bool:
         """
-        :return: if if all went well, if an equivalent element was found in the set, it is returned instead
+        :return: True if all went well, False if an equivalent element was found in the set
         """
-        node = self.node_factory(x)
+        node = TopologicalNode(x)
 
         potential_parents: Set = {self.root}
         direct_parents = []
@@ -115,15 +120,21 @@ class TopologicalSet(MutableSet[T], Generic[T]):
         except KeyError:
             pass
 
+    layer_factory = set
+
     def layers(self):
+        """
+        Iterate over the set by topological layers, such that each element yielded is the maximal subset of self that
+         is only less than elements previously yielded
+        """
         waiting: Dict[TopologicalNode, Set[TopologicalNode]] = {}
         no_prev: Iterable[TopologicalNode] = self.root.gt
 
         while no_prev:
-            ret = []
+            ret = self.layer_factory()
             new_np = []
             for k in no_prev:
-                ret.append(k.inner)
+                ret.add(k.inner)
                 for child in k.gt:
                     child_deps = waiting.get(child)
                     if child_deps is None:
@@ -146,17 +157,3 @@ class TopologicalSet(MutableSet[T], Generic[T]):
     def clear(self) -> None:
         self._len = 0
         self.root.gt.clear()
-
-    def __init_subclass__(cls, **kwargs):
-        super().__init_subclass__(**kwargs)
-        gt_factory = cls.__dict__.get('gt_factory', set)
-        lt_factory = cls.__dict__.get('lt_factory', set)
-        if gt_factory != set:
-            rc = new_class(cls.__name__ + '_Root', (TopologicalRootNode,))
-            rc.gt_factory = gt_factory
-            cls.root_factory = rc
-        if gt_factory != set or lt_factory != set:
-            nc = new_class(cls.__name__ + '_Node', (TopologicalNode,))
-            nc.gt_factory = gt_factory
-            nc.lt_factory = lt_factory
-            cls.node_factory = nc

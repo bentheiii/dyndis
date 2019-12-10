@@ -6,7 +6,7 @@ from warnings import warn
 
 from dyndis.type_keys.type_key import TypeKey, type_keys, CoreTypeKey, Self, MatchException, TypeVarKey, ClassKey, \
     AmbiguousBindingError, class_type_key
-from dyndis.util import SubPriority, Bottom
+from dyndis.util import SubPriority
 
 try:
     from typing import Literal
@@ -141,7 +141,7 @@ class Candidate:
                 tk.introduce(encountered_tvars)
             ret.append(cls(
                 types, func,
-                SubPriority.make(priority, sum(t.priority_offset() for t in set(types)))
+                priority
             ))
         return ret
 
@@ -225,6 +225,10 @@ class Candidate:
         return self < other
 
     def match(self, query: Tuple[type]) -> Union[bool, MatchException]:
+        """
+        :param query: a sequence of types to test against
+        :return: whether the query types are applicable against the query, or a MatchException if one occurred
+        """
         bound_tv = {}
         if len(query) != len(self.types):
             raise ValueError('length mismatch')
@@ -238,7 +242,7 @@ class Candidate:
                     return False
                 bound_tv[tk.inner] = constrained
             else:
-                v = True if q is Bottom else tk.match(q, bound_tv)
+                v = tk.match(q, bound_tv)
                 if not v or isinstance(v, MatchException):
                     return v
         return True
