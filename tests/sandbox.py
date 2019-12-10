@@ -4,27 +4,17 @@ from dyndis import MultiDispatch, UnboundAttr
 
 foo = MultiDispatch()
 
-
-class A:
-    T = Union[int, str]
-
-
-class B:
-    T = int
-
-
-T = TypeVar('T', A, B)
+T = TypeVar('T')
 
 
 @foo.add_func()
-def foo(a: T, x: UnboundAttr(T, 'T')):
+def foo(a: T):
     return 0
 
 
 @foo.add_func()
-def foo(a: T, x: int):
+def foo(a: int):
     return 1
 
 
-print(foo.potential_conflicts().display())
-print(foo(A(), 15))
+print(foo(15))

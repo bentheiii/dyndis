@@ -7,6 +7,7 @@ Dyndis is a library to easily and fluently make multiple-dispatch functions and 
 from typing import Union
 
 from dyndis import MultiDispatch
+
 foo = MultiDispatch()
 @foo.add_func()
 def foo(a: int, b: Union[int, str]):
@@ -23,32 +24,25 @@ foo(2, 3.0)  # overload 2
 ## Features
 * dynamic upcasting
 * customizable priorities for candidates
-* seamless usage of type-hints
-* type-trie to minimize candidate lookup time
+* seamless usage of type-hints and type variables
+* advanced data structures to minimize candidate lookup time
 * powerful caching of candidates by layer to minimize lookup time for repeat parameters without iterating through all candidates unnecessarily.
 * implementor interface makes it easy to create method-like overloads
 ## How Does it Work?
-The central class (and only one users need to import) is `MultiDispatch`. `MultiDispatch` contains candidate implementations sorted by both priority and types of the parameters they accept. When the `MultiDispatch` is called, it calls its relevant candidates (ordered by both priority and compatibility, expanded upon below) until one returns a non-NotImplement return value.
+The central class (and only one users need to import) is `MultiDispatch`. `MultiDispatch` contains candidate implementations sorted by both priority and types of the parameters they accept. When the `MultiDispatch` is called, it calls its relevant candidates (ordered by both priority, inheritance, and compatibility, expanded upon below) until one returns a non-`NotImplemented` return value.
 ## The Lookup Order
 All candidates for parameters of types <T0, T1, T2..., TN> are ordered as follows:
  * Any candidate with a types that is incompatible with any type in the key is excluded. That is, if for any 0 <= `i` <= N, a candidate's type constraint for parameter `i` is not a superclass of Ti, the candidate is excluded.
- * Candidates are ordered (ascending) by how many upcasts are required for the key type to match the candidate types (this is called their rank). So for example, for a type key <int, tuple, string>, the following candidates will be ordered as follows:
-    1. <int, tuple, string>, since it requires 0 upcasts
-    1. <int, Iterable, string> since it requires 1 upcasts
-    1. <Number, tuple, Sequence>, since it requires 2 upcasts
-    1. <object, Sequence, Sequence>, since it requires 3 upcasts
-  
-   Note that upcasting does not consider how far the hierarchy the casting is, so a candidate <object, object, object> will have the same rank as <object, Sequence, Sequence> (but see below).
- * Then, all candidates of equal rank are sorted (descending) by their priority. All decorators have a parameter to set a priority for candidates, by default the priority is 0. Some automatic processes can change a candidate's priority over other candidates of equal priority (such as with symmetric candidates, below).
- * Finally, all the candidates of equal rank and priority will sorted topologically, where precedence is dictated by whether all the type hints of one candidate are subtypes of the type hints of the other candidate. So that <int,object> will be considered before <Number, object> even for parameter type <bool, str>
+ * Candidates are ordered by inheritance. A candidate is considered to inherit another candidate if all its parameter types are subclasses of (or are likewise covered by) the other's respective parameter type. A candidate will be considered before any other candidate it inherits. So for example, <int,object> will be considered before <Number, object>.
+ * All candidates that do not inherit each other are sorted (descending) by their priority. All decorators have a parameter to set a priority for candidates, by default the priority is 0. Some automatic processes can change a candidate's priority over other candidates of equal priority (such as with symmetric candidates, below).
  
-If two candidates have equal rank and priority, and neither is a strict sub-key of the other, an exception (of type `dyndis.AmbiguityError`) is raised.
+If two candidates have equal priority, and neither inherits of the other, an exception (of type `dyndis.AmbiguityError`) is raised (unless a candidate with greater precedence than both succeeds first).
 
 If a candidate returns `NotImplemented`, the next candidate in the order is tried.
 ## Tries and Caches
-`dyndis` uses a non-compressing trie to order all its candidates by the parameter types, so that most of the candidates can be disregarded without any overhead. The trie also allows to lazily evaluate all rank 0 candidates before all rank 1, and so on.
+`dyndis` uses a topological set composing non-compressing tries to order all its candidates by the parameter types, so that most of the candidates can be disregarded without any overhead.
 
-Considering all these candidates for every lookup gets quite slow and encumbering very quickly. For this reason, every `MultiDispatch` automatically caches any work done by previous calls when it comes to sorting and processing candidates. The cache maintains the laziness of the trie, and minimizes the work done at any given time.
+Considering all these candidates for every lookup gets quite slow and encumbering very quickly. For this reason, every `MultiDispatch` automatically caches any work done by previous calls when it comes to sorting and processing candidates. The cache maintains the laziness of the lookup, and minimizes the work done at any given time.
 ## Default, Variadic, and Keyword parameters
 * If a candidate has positional parameters with a default value and a type annotation, it will be included as an optional value. If the default value is `None`, it will be added to the type hint.
 * If a candidate has positional parameters with a default value and no type annotation, or they are preceded by a default parameter without a type annotation, these parameters are ignored for the purpose of the candidate's parameter types. When called from a `MultiDispatch`, the parameter's values will always be the default.
@@ -136,7 +130,7 @@ b = B()
 a + b  # A+B/B+A
 b + a  # A+B/B+A
 ```
-All permutations are considered to have a priority lower than the original priority.
+All permutations of a candidate are considered to have a priority lower than the original candidate.
 
 One should take care when making symmetric candidates, as it can create an inordinate number of candidates (super-exponential to the number of parameters).
 ## Special Type Annotations
@@ -144,8 +138,8 @@ type annotations can be of any type, or among any of these special values
 * `dyndis.Self`: used in implementors (see above), and is an error to use outside of them
 * `typing.Union`: accepts parameters of any of the enclosed type
 * `typing.Optional`: accepts the enclosed type or `None`
-* `typing.Any`: is considered an up-cast match for any type, including `object`
-* Any of typing's aliases and abstract classes such as `typing.List` or `typing.Sized`: equivalent to their origin type (note that specialized aliases such as `typing.List[str]` are not valid)
+* `typing.Any`: is considered a supertype for any type, including `object`
+* Any of typing's aliases and abstract classes such as `typing.List` or `typing.Sized`: equivalent to their origin type (note that specialized aliases such as `typing.List[str]` are invalid)
 * `typing.TypeVar`: see below
 * `None`, `...`, `NotImplemented`: equivalent to their types
 * python 3.8 only: `typing.Literal` for singletons (`None`, `...`, `NotImplemented`): equivalent to their enclosed value
@@ -180,7 +174,7 @@ foo(object(), object())  # <=
 foo(False, 2)  # </=
 ```
 
-Candidates have their priorities adjusted so that candidates with more `TypeVar`s are ranked below candidates with less.
+`Typevars` are considered supertypes of their bound (or `object` if they are without bounds), or their constraints.
 
 ## `UnboundDelegate`
 Advanced usage can also make use of the various `UnboundDelegate` subclasses to get attributes of types assigned to type variables, to allow for Rust-style type requirements

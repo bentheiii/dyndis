@@ -10,7 +10,7 @@ from dyndis.candidate import Candidate
 from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod, MultiDispatchClassMethod
 from dyndis.exceptions import NoCandidateError, AmbiguityError
 from dyndis.implementor import Implementor
-from dyndis.topological_set import TopologicalSet
+from dyndis.topological_set import TopologicalSet, CandidateSet
 from dyndis.type_keys.type_key import MatchException
 from dyndis.util import RawReturnValue
 
@@ -29,7 +29,7 @@ class CachedSearch:
         """
         self.query = key
 
-        self.layer_iter = owner.candidate_topsets[len(key)].layers()
+        self.layer_iter = iter(owner.candidate_topsets[len(key)].layers)
 
         self.sorted = []
 
@@ -38,30 +38,28 @@ class CachedSearch:
         advance the search by one layer, and cache the results
         :return: the new candidates added to the sorted list
         """
-        layer: Optional[List[Candidate]] = next(self.layer_iter, None)
+        layer: Optional[CandidateSet] = next(self.layer_iter, None)
         if layer is None:
             self.layer_iter = None
             return None
-        ret = []
-        for cand in layer:
-            v = cand.match(self.query)
-            if isinstance(v, MatchException):
-                # ensure the error will be raised again if called
-                self.layer_iter = chain([layer], self.layer_iter)
-                raise v
-            if v:
-                if not ret or ret[-1][0].priority != cand.priority:
-                    ret.append([cand])
-                else:
-                    ret[-1].append(cand)
 
-        self.sorted.extend(reversed(ret))
-        yield from reversed(ret)
+        try:
+            sub_layers = layer.by_sublayer(self.query)
+        except MatchException:
+            # ensure the error will be raised again if called
+            self.layer_iter = chain([layer], self.layer_iter)
+            raise
+
+        sl = [[c.inner for c in s] for s in sub_layers]
+        self.sorted.extend(sl)
+        return sl
 
     def __iter__(self):
         yield from self.sorted
         while self.layer_iter:
-            yield from self.advance()
+            next_layers = self.advance()
+            if next_layers is not None:
+                yield from next_layers
 
 
 EMPTY = object()
@@ -71,13 +69,6 @@ class MultiDispatch:
     """
     The central class, a callable that can delegate to multiple candidates depending on the types of parameters
     """
-
-    class TieredTopologicalSet(TopologicalSet):
-        """
-        A topologicalset class that sorts each layer by its priority
-        """
-        def layer_factory(self):
-            return SortedList(key=lambda x: x.priority)
 
     def __init__(self, name: str = None, doc: str = None):
         """
@@ -110,7 +101,7 @@ class MultiDispatch:
         """
         sc = self.candidate_topsets.get(len(candidate.types))
         if sc is None:
-            sc = self.candidate_topsets[len(candidate.types)] = self.TieredTopologicalSet()
+            sc = self.candidate_topsets[len(candidate.types)] = TopologicalSet()
         if not sc.add(candidate):
             raise ValueError(f'A candidate of equal types ({candidate.types})'
                              f' and priority ({candidate.priority}) exists')
@@ -184,6 +175,8 @@ class MultiDispatch:
         """
         types = tuple(type(a) for a in args)
         for layer in self.candidates_for_types(*types):
+            if len(layer) == 0:
+                continue
             if len(layer) != 1:
                 raise AmbiguityError(layer, types)
             c = layer[0]
@@ -246,7 +239,7 @@ class MultiDispatch:
         get all the candidates defined in the multidispatch.
          Candidates are sorted by their priority, then topologically.
         """
-        return chain.from_iterable(self.candidate_topsets.values())
+        return map(lambda x: x.inner, chain.from_iterable(self.candidate_topsets.values()))
 
     def __str__(self):
         if self.__name__:

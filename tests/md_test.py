@@ -1,5 +1,5 @@
 from typing import Sized, Union, TypeVar, Any, Sequence
-from unittest import TestCase
+from unittest import TestCase, skip
 
 from dyndis import MultiDispatch, UnboundAttr, Self
 from dyndis.exceptions import NoCandidateError, AmbiguityError
@@ -14,7 +14,7 @@ class GeneralTest(TestCase):
         @foo.add_func()
         def foo(a: int, b: Sized):
             return a * len(b)
-
+        x = 5
         @foo.add_func()
         def foo(a: int, b: Sequence):
             return a * len(b) * 2
@@ -100,7 +100,8 @@ class GeneralTest(TestCase):
             funcs.append(foo_)
 
             foo.add_func(foo_)
-        cands = foo.candidates_for_types(hierarchy[-1], hierarchy[-1], hierarchy[-1])
+
+        cands = list(foo.candidates_for_types(hierarchy[-1], hierarchy[-1], hierarchy[-1]))
         cands = [[c.func.ind for c in l] for l in cands]
 
         self.assertEqual(len(cands), 4)
@@ -542,48 +543,3 @@ class TypeVarTest(TestCase):
         self.assertEqual(foo(object(), A()), 0)
         self.assertEqual(foo(object(), B()), 1)
         self.assertEqual(foo(object(), C()), 1)
-
-
-class TopologicalSetTests(TestCase):
-    class Divnum(int):
-        def __lt__(self, other):
-            return other % self == 0
-
-    def assertLayers(self, ts: TopologicalSet, layers):
-        self.assertEqual([set(i) for i in ts.layers()],
-                         layers)
-
-    def test_simple(self):
-        ts = TopologicalSet([self.Divnum(i) for i in (1, 6, 11, 18, 306, 17)])
-        self.assertLayers(ts,
-                          [
-                              {1},
-                              {6, 11, 17},
-                              {18},
-                              {306}
-                          ])
-
-        ts.remove(6)
-        self.assertLayers(ts,
-                          [
-                              {1},
-                              {18, 11, 17},
-                              {306}
-                          ])
-
-    def test_removal(self):
-        ts = TopologicalSet([self.Divnum(i) for i in (1, 2, 3, 6, 12, 18)])
-        self.assertLayers(ts,
-                          [
-                              {1},
-                              {2, 3},
-                              {6},
-                              {12, 18}
-                          ])
-        ts.remove(6)
-        self.assertLayers(ts,
-                          [
-                              {1},
-                              {2, 3},
-                              {12, 18}
-                          ])

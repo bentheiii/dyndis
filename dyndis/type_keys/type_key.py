@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Union, Dict, TypeVar, Hashable, Any, Iterable, Optional, Tuple, ByteString, Generic, MutableSet
 from abc import abstractmethod, ABC
 
@@ -265,6 +266,28 @@ class TypeVarKey(CoreWrapperKey[TypeVar]):
     A type key of a type variable
     """
 
+    @staticmethod
+    @lru_cache()
+    def constrain_type(cls, scls: Union[type, TypeVar]) -> Optional[ClassKey]:
+        """
+        get the lowest type that cls can be up-cast to and scls accepts as constraint. Or None if none exists.
+        """
+        if isinstance(scls, TypeVar):
+            if scls.__constraints__:
+                candidates = [c for c in scls.__constraints__ if issubclass(cls, c)]
+                if not candidates:
+                    return None
+                minimal_candidates = [
+                    cand for cand in candidates if all(issubclass(cand, c) for c in candidates)
+                ]
+                if len(minimal_candidates) != 1:
+                    raise AmbiguousBindingError(scls, cls, minimal_candidates or candidates)
+                return class_type_key(minimal_candidates[0])
+            elif scls.__bound__:
+                return TypeVarKey.constrain_type(cls, scls.__bound__)
+            return class_type_key(cls)
+        return class_type_key(cls) if issubclass(cls, scls) else None
+
     def match(self, query_key: type, defined_type_var: Dict[TypeVar, ClassKey]) -> Union[bool, MatchException]:
         return defined_type_var[self.inner].match(query_key, defined_type_var)
 
@@ -413,7 +436,7 @@ if Literal:
         """
 
         def __init__(self, inner):
-            if set(get_args(inner)) <= frozenset((..., NotImplemented, None)):
+            if frozenset(get_args(inner)) <= frozenset((..., NotImplemented, None)):
                 raise TypeError('cannot have non-singleton in literal key')
             super().__init__(inner)
 

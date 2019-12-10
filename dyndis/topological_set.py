@@ -1,49 +1,151 @@
 from __future__ import annotations
 
 from itertools import chain
-from typing import Generic, TypeVar, Set, Union, Dict, Iterable, MutableSet
+from typing import TypeVar, Set, Union, MutableSet, Any, MutableMapping, List, Iterator, Sequence
+
+from sortedcontainers import SortedDict
+
+from dyndis.candidate import Candidate
+from dyndis.trie import Trie, TrieNode
+from dyndis.type_keys.type_key import TypeKey, MatchException, TypeVarKey
 
 T = TypeVar('T')
 
 
-class TopologicalNode(Generic[T]):
+class TopologicalNode:
     """
     A node of an element in a topological set
     """
+    __slots__ = 'inner', 'gt', 'lt', '_layer'
 
-    def __init__(self, inner: T):
+    def __init__(self, inner: Candidate):
         self.inner = inner
         # rule: if root is in lt, then len(gt) == 1
-        self.lt: Set[Union[TopologicalNode[T], TopologicalRootNode[T]]] = set()
-        self.gt: Set[TopologicalNode[T]] = set()
+        self.lt: Set[Union[TopologicalNode, TopologicalRootNode]] = set()
+        self.gt: Set[TopologicalNode] = set()
+
+        self._layer = None
 
     def __lt__(self, other):
         if not isinstance(other, type(self)):
             return NotImplemented
         return self.inner < other.inner
 
+    def layer(self):
+        if self._layer is None:
+            self._layer = max(l.layer() for l in self.lt) + 1
+        return self._layer
 
-class TopologicalRootNode(Generic[T]):
+    def invalidate_layer(self):
+        self._layer = None
+
+
+class TopologicalRootNode:
     """
-    The root node of a topological set. This is a handy wrapper for a set, allowing it to be used as a node
+    The virtual root node of a topological set. This is a handy wrapper for a set's first layer, allowing it to be used
+     as a node
     """
 
-    def __init__(self):
-        self.gt: Set[TopologicalNode[T]] = set()
+    def __init__(self, owner: TopologicalSet):
+        self.owner = owner
+
+    @property
+    def gt(self):
+        if not self.owner.layers:
+            return frozenset()
+        return self.owner.layers[0]
 
     def __lt__(self, other):
         return True
 
+    def layer(self):
+        return -1
 
-# todo use a trie to speed up candidate filtering?
 
-class TopologicalSet(MutableSet[T], Generic[T]):
+class CandidateSet(MutableSet[TopologicalNode]):
+    """
+    A set that stores candidates of equal rank in easy-to-query tries
+    """
+
+    def __init__(self):
+        self.tries: MutableMapping[Any, Trie[TypeKey, TopologicalNode]] = SortedDict()
+
+    def add(self, cand: TopologicalNode):
+        trie = self.tries.get(cand.inner.priority)
+        if trie is None:
+            trie = self.tries[cand.inner.priority] = Trie()
+        trie[cand.inner.types] = cand
+
+    def remove(self, cand: TopologicalNode):
+        trie = self.tries.get(cand.inner.priority)
+        if trie is None:
+            raise KeyError(cand)
+        del trie[cand.inner.types]
+        if not trie:
+            del self.tries[cand.inner.priority]
+
+    def discard(self, x) -> None:
+        try:
+            self.remove(x)
+        except KeyError:
+            pass
+
+    def __len__(self):
+        return sum(len(t) for t in self.tries.values())
+
+    def __iter__(self):
+        for trie in reversed(self.tries.values()):
+            yield from trie.values()
+
+    def clear(self) -> None:
+        self.tries.clear()
+
+    def __contains__(self, cand):
+        trie = self.tries.get(cand.inner.priority)
+        if trie is None:
+            return False
+        return cand.inner.types in trie
+
+    def by_sublayer(self, query: Sequence[type]):
+        """
+        :return: for each priority in self (in decreasing order), yields all the candidates of that priority that match
+         the query
+        """
+
+        def _matches(node: TrieNode[TypeKey, TopologicalNode], ind, defined_type_vars):
+            if ind == len(query):
+                yield node.value()
+                return
+            q = query[ind]
+            for k, child in node.children.items():
+                new_dtv = defined_type_vars
+                if isinstance(k, TypeVarKey) and k.inner not in new_dtv:
+                    constrained = k.constrain_type(q, k.inner)
+                    if not constrained:
+                        continue
+                    new_dtv = dict(new_dtv)
+                    new_dtv[k.inner] = constrained
+                    match = True
+                else:
+                    match = k.match(q, new_dtv)
+                    if isinstance(match, MatchException):
+                        raise match
+
+                if match:
+                    yield from _matches(child, ind + 1, new_dtv)
+
+        for t in reversed(self.tries.values()):
+            yield _matches(t.root, 0, {})
+
+
+class TopologicalSet(MutableSet[Candidate]):
     """
     A set that allows for quick topological sorting of its elements, supporting weakly ordered elements
     """
 
     def __init__(self, arg=()):
-        self.root = TopologicalRootNode()
+        self.root = TopologicalRootNode(self)
+        self.layers: List[CandidateSet] = []
         self._len = 0
         for a in arg:
             self.add(a)
@@ -72,47 +174,49 @@ class TopologicalSet(MutableSet[T], Generic[T]):
                 direct_parents.append(pp)
 
         for dp in direct_parents:
-            dp.gt.add(node)
             node.lt.add(dp)
+            if dp is not self.root:
+                dp.gt.add(node)
+
         for dc in direct_children:
             supplanted = dc.lt & node.lt
             for s in supplanted:
-                s.gt.remove(dc)
+                if s is not self.root:
+                    s.gt.remove(dc)
             dc.lt.difference_update(supplanted)
             dc.lt.add(node)
             node.gt.add(dc)
+            self._rebase(dc)
+
+        layer = node.layer()
+        if len(self.layers) == layer:
+            self.layers.append(CandidateSet())
+        self.layers[layer].add(node)
 
         return True
 
-    def _iter_nodes(self):
-        seen = set()
-        stack = list(self.root.gt)
-        while stack:
-            s = stack.pop()
-
-            if s in seen:
-                continue
-            seen.add(s)
-            yield s
-            stack.extend(s.gt)
+    def _rebase(self, candidate: TopologicalNode):
+        """
+        remove a node from its current layer, and place it in its appropriate layer, and similarly rebase all its
+         children
+        """
+        prev_layer = candidate.layer()
+        candidate.invalidate_layer()
+        new_layer = candidate.layer()
+        if new_layer == prev_layer:
+            return
+        self.layers[prev_layer].remove(candidate)
+        if len(self.layers) <= new_layer:
+            self.layers.append(CandidateSet())
+        self.layers[new_layer].add(candidate)
+        for child in candidate.gt:
+            self._rebase(child)
 
     def __contains__(self, item):
-        return any(
-            node.inner == item for node in self._iter_nodes()
-        )
+        raise NotImplementedError
 
     def remove(self, x) -> None:
-        node = next((node for node in self._iter_nodes() if node.inner == x),
-                    None)
-        if not node:
-            raise KeyError(x)
-        for p in node.lt:
-            p.gt.remove(node)
-            for c in node.gt:
-                c.lt.discard(node)
-                p.gt.add(c)
-                c.lt.add(p)
-        self._len -= 1
+        raise NotImplementedError
 
     def discard(self, x) -> None:
         try:
@@ -120,36 +224,8 @@ class TopologicalSet(MutableSet[T], Generic[T]):
         except KeyError:
             pass
 
-    layer_factory = set
-
-    def layers(self):
-        """
-        Iterate over the set by topological layers, such that each element yielded is the maximal subset of self that
-         is only less than elements previously yielded
-        """
-        waiting: Dict[TopologicalNode, Set[TopologicalNode]] = {}
-        no_prev: Iterable[TopologicalNode] = self.root.gt
-
-        while no_prev:
-            ret = self.layer_factory()
-            new_np = []
-            for k in no_prev:
-                ret.add(k.inner)
-                for child in k.gt:
-                    child_deps = waiting.get(child)
-                    if child_deps is None:
-                        child_deps = waiting[child] = set(child.lt)
-                    child_deps.remove(k)
-                    if not child_deps:
-                        del waiting[child]
-                        new_np.append(child)
-            yield ret
-            no_prev = new_np
-
-        assert not waiting, 'cycles!'
-
     def __iter__(self):
-        return chain.from_iterable(self.layers())
+        return chain.from_iterable(self.layers)
 
     def __len__(self):
         return self._len
@@ -157,3 +233,4 @@ class TopologicalSet(MutableSet[T], Generic[T]):
     def clear(self) -> None:
         self._len = 0
         self.root.gt.clear()
+        self.layers.clear()

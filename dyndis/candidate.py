@@ -1,11 +1,9 @@
-from functools import lru_cache
 from inspect import signature, Parameter
 from itertools import chain, product, permutations
-from typing import Callable, get_type_hints, Iterable, Tuple, Union, TypeVar, Optional
+from typing import Callable, get_type_hints, Iterable, Tuple
 from warnings import warn
 
-from dyndis.type_keys.type_key import TypeKey, type_keys, CoreTypeKey, Self, MatchException, TypeVarKey, ClassKey, \
-    AmbiguousBindingError, class_type_key
+from dyndis.type_keys.type_key import TypeKey, type_keys, CoreTypeKey, Self
 from dyndis.util import SubPriority
 
 try:
@@ -28,28 +26,6 @@ def includes_keys(lhs: Tuple[TypeKey, ...], rhs: Tuple[TypeKey, ...]):
         else:
             return False
     return True
-
-
-@lru_cache()
-def constrain_type(cls, scls: Union[type, TypeVar]) -> Optional[ClassKey]:
-    """
-    get the lowest type that cls can be up-cast to and scls accepts as constraint. Or None if none exists.
-    """
-    if isinstance(scls, TypeVar):
-        if scls.__constraints__:
-            candidates = [c for c in scls.__constraints__ if issubclass(cls, c)]
-            if not candidates:
-                return None
-            minimal_candidates = [
-                cand for cand in candidates if all(issubclass(cand, c) for c in candidates)
-            ]
-            if len(minimal_candidates) != 1:
-                raise AmbiguousBindingError(scls, cls, minimal_candidates or candidates)
-            return class_type_key(minimal_candidates[0])
-        elif scls.__bound__:
-            return constrain_type(cls, scls.__bound__)
-        return class_type_key(cls)
-    return class_type_key(cls) if issubclass(cls, scls) else None
 
 
 _missing = object()
@@ -223,26 +199,3 @@ class Candidate:
         if self.types == other.types and self.priority == other.priority:
             return True
         return self < other
-
-    def match(self, query: Tuple[type]) -> Union[bool, MatchException]:
-        """
-        :param query: a sequence of types to test against
-        :return: whether the query types are applicable against the query, or a MatchException if one occurred
-        """
-        bound_tv = {}
-        if len(query) != len(self.types):
-            raise ValueError('length mismatch')
-        for q, tk in zip(query, self.types):
-            if isinstance(tk, TypeVarKey) and (tk.inner not in bound_tv):
-                try:
-                    constrained = constrain_type(q, tk.inner)
-                except MatchException as e:
-                    return e
-                if not constrained:
-                    return False
-                bound_tv[tk.inner] = constrained
-            else:
-                v = tk.match(q, bound_tv)
-                if not v or isinstance(v, MatchException):
-                    return v
-        return True

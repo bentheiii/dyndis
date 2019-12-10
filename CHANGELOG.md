@@ -1,5 +1,5 @@
 # dyndis changelog
-## 0.0.5: unreleased
+## 0.0.5: 2019-12-10
 ### Changed
 * implementors now remove themselves from the class they are declared in
 * generic alias checking method changed
