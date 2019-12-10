@@ -1,10 +1,12 @@
+from functools import lru_cache
 from inspect import signature, Parameter
 from itertools import chain, product, permutations
-from typing import Callable, get_type_hints, Iterable, Tuple
+from typing import Callable, get_type_hints, Iterable, Tuple, Union, TypeVar, Optional
 from warnings import warn
 
-from dyndis.type_keys.type_key import TypeKey, type_keys, CoreTypeKey, Self
-from dyndis.util import SubPriority
+from dyndis.type_keys.type_key import TypeKey, type_keys, CoreTypeKey, Self, MatchException, TypeVarKey, ClassKey, \
+    AmbiguousBindingError, class_type_key
+from dyndis.util import SubPriority, Bottom
 
 try:
     from typing import Literal
@@ -28,6 +30,28 @@ def includes_keys(lhs: Tuple[TypeKey, ...], rhs: Tuple[TypeKey, ...]):
     return True
 
 
+@lru_cache()
+def constrain_type(cls, scls: Union[type, TypeVar]) -> Optional[ClassKey]:
+    """
+    get the lowest type that cls can be up-cast to and scls accepts as constraint. Or None if none exists.
+    """
+    if isinstance(scls, TypeVar):
+        if scls.__constraints__:
+            candidates = [c for c in scls.__constraints__ if issubclass(cls, c)]
+            if not candidates:
+                return None
+            minimal_candidates = [
+                cand for cand in candidates if all(issubclass(cand, c) for c in candidates)
+            ]
+            if len(minimal_candidates) != 1:
+                raise AmbiguousBindingError(scls, cls, minimal_candidates or candidates)
+            return class_type_key(minimal_candidates[0])
+        elif scls.__bound__:
+            return constrain_type(cls, scls.__bound__)
+        return class_type_key(cls)
+    return class_type_key(cls) if issubclass(cls, scls) else None
+
+
 _missing = object()
 
 
@@ -36,7 +60,7 @@ class Candidate:
     A class representing a specific implementation for a multi-dispatch
     """
 
-    def __init__(self, types: Iterable[TypeKey], func: Callable, priority):
+    def __init__(self, types: Iterable[CoreTypeKey], func: Callable, priority):
         """
         :param types: the types for the conditions
         :param func: the function of the implementation
@@ -171,3 +195,50 @@ class Candidate:
                 Candidate(t, func, priority)
             )
         return ret
+
+    def __lt__(self, other):
+        if self.types == other.types or len(self.types) != len(other.types):
+            return False
+        ret = False
+        for left, right in zip(self.types, other.types):
+            if ret:
+                try:
+                    if not left <= right:
+                        return False
+                except TypeError:
+                    return False
+            else:
+                try:
+                    if left < right:
+                        ret = True
+                    elif not (left <= right):
+                        return False
+                except TypeError:
+                    return False
+        return ret
+
+    def __le__(self, other):
+        if len(self.types) != len(other.types):
+            return False
+        if self.types == other.types and self.priority == other.priority:
+            return True
+        return self < other
+
+    def match(self, query: Tuple[type]) -> Union[bool, MatchException]:
+        bound_tv = {}
+        if len(query) != len(self.types):
+            raise ValueError('length mismatch')
+        for q, tk in zip(query, self.types):
+            if isinstance(tk, TypeVarKey) and (tk.inner not in bound_tv):
+                try:
+                    constrained = constrain_type(q, tk.inner)
+                except MatchException as e:
+                    return e
+                if not constrained:
+                    return False
+                bound_tv[tk.inner] = constrained
+            else:
+                v = True if q is Bottom else tk.match(q, bound_tv)
+                if not v or isinstance(v, MatchException):
+                    return v
+        return True

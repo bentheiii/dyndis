@@ -1,8 +1,8 @@
 from abc import abstractmethod
-from itertools import chain
-from typing import TypeVar, Dict, Union, MutableSet, Callable
+from itertools import chain, product
+from typing import TypeVar, Dict, MutableSet, Callable, FrozenSet
 
-from dyndis.type_keys.type_key import CoreTypeKey, ClassKey, type_key
+from dyndis.type_keys.type_key import CoreTypeKey, ClassKey, type_key, type_keys, within_constraints
 
 
 class UnboundDelegate(CoreTypeKey):
@@ -26,6 +26,7 @@ class UnboundDelegate(CoreTypeKey):
         :param type_var: the type variable to use
         """
         self.type_vars = type_vars
+        self._possibilities = ...
 
     @abstractmethod
     def __call__(self, *bound_types: type) -> type:
@@ -37,28 +38,60 @@ class UnboundDelegate(CoreTypeKey):
         """
         return self.Nil
 
-    def match(self, query_key: type, defined_type_var: Dict[TypeVar, ClassKey]) -> Union[int, None, Exception]:
+    def get(self, defined_type_var: Dict[TypeVar, ClassKey]):
         defs = [defined_type_var.get(tv) for tv in self.type_vars]
         if None in defs:
-            raise UnboundTypeVarError(self,
-                                      [
-                                          tv for (tv, b) in zip(self.type_vars) if b is None
-                                      ])
+            raise UnboundTypeVarError(self, [tv for (tv, b) in zip(self.type_vars, defs) if b is None])
         return type_key(
             self(*(d.inner for d in defs))
-        ).match(query_key, defined_type_var)
+        )
+
+    def match(self, query_key: type, defined_type_var: Dict[TypeVar, ClassKey]):
+        return self.get(defined_type_var).match(query_key, defined_type_var)
+
+    def possibilities(self):
+        """
+        :return: all possible values of the delegate, or None if it cannot be calculated
+        Node: can only be calculated if all typevars are constrained
+        """
+        if self._possibilities is ...:
+            constraints = []
+            for t in self.type_vars:
+                if not t.__constraints__:
+                    self._possibilities = None
+                    break
+                constraints.append(t.__constraints__)
+            else:
+                self._possibilities = tuple(
+                    self(*args) for args in product(*constraints)
+                )
+        return self._possibilities
 
     def __lt__(self, other):
-        return NotImplemented
+        pos = self.possibilities()
+        if pos is None:
+            return NotImplemented
+        return within_constraints(pos, other, True)
 
     def __le__(self, other):
-        return self == other and NotImplemented
+        if self == other:
+            return True
+        pos = self.possibilities()
+        if pos is None:
+            return NotImplemented
+        return within_constraints(pos, other, False)
 
     def introduce(self, encountered_type_variables: MutableSet[TypeVar]):
         super().introduce(encountered_type_variables)
         missing = [tv for tv in self.type_vars if tv not in encountered_type_variables]
         if missing:
             raise OrphanDelegateError(self, missing)
+
+    def match_types(self, defined_type_var) -> FrozenSet[type]:
+        splitting = self.get(defined_type_var)
+        return frozenset.union(
+            *(s.match_types(defined_type_var) for s in type_keys(splitting))
+        )
 
 
 _raise = object()

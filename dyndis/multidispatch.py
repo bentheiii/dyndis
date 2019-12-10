@@ -1,89 +1,21 @@
 from __future__ import annotations
 
-from functools import partial, lru_cache
-from itertools import chain
-from numbers import Number
-from typing import Dict, Tuple, List, Callable, Union, Iterable, TypeVar, Any, NamedTuple, Optional, Iterator
+from functools import partial
+from itertools import chain, combinations, product
+from typing import Dict, Tuple, List, Callable, Union, Iterable, Optional, Iterator
 
-from sortedcontainers import SortedDict, SortedList
+from sortedcontainers import SortedSet
 
+from dyndis.ambiguity_set import PotentialConflictSet
 from dyndis.candidate import Candidate
-from dyndis.topological_ordering import TopologicalOrder
 from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod, MultiDispatchClassMethod
 from dyndis.exceptions import NoCandidateError, AmbiguityError
 from dyndis.implementor import Implementor
-from dyndis.ranked_children import RankedChildrenTrie, RankedChildrenExhaustion
-from dyndis.trie import TrieNode, Trie
-from dyndis.type_keys.type_key import TypeVarKey, ClassKey, TypeKey, MatchException, MatchKind
+from dyndis.topological_set import TopologicalSet
+from dyndis.type_keys.type_key import MatchException, TypeVarKey, class_type_key, all_subclasses
 from dyndis.util import RawReturnValue
 
-CandTrie = Trie[TypeKey, Dict[Number, Candidate]]
-CandTrieNode = TrieNode[TypeKey, Dict[Number, Candidate]]
-
 RawNotImplemented = RawReturnValue(NotImplemented)
-
-
-@lru_cache
-def constrain_type(cls, scls: Union[type, TypeVar]) -> Optional[ClassKey]:
-    """
-    get the lowest type that cls can be up-cast to and scls accepts as constraint. Or None if none exists.
-    """
-    if isinstance(scls, TypeVar):
-        if scls.__constraints__:
-            candidates = [c for c in scls.__constraints__ if issubclass(cls, c)]
-            if not candidates:
-                return None
-            minimal_candidates = [
-                cand for cand in candidates if all(issubclass(cand, c) for c in candidates)
-            ]
-            if len(minimal_candidates) != 1:
-                raise AmbiguousBindingError(scls, cls, minimal_candidates or candidates)
-            return ClassKey(minimal_candidates[0])
-        elif scls.__bound__:
-            return constrain_type(cls, scls.__bound__)
-        return ClassKey(cls)
-    return ClassKey(cls) if issubclass(cls, scls) else None
-
-
-def process_new_layers(layers: Iterable[List[Candidate]]):
-    """
-    split universal minimal members into their own layers
-    """
-    ret = []
-    for layer in layers:
-        to = TopologicalOrder(layer)
-        ret.extend(to.sorted_layers())
-    return ret
-
-
-def add_priority(seen_priorities: SortedDict[Number, List[Candidate]], candidate: Candidate):
-    """
-    Add a candidate to a temporary result dictionary
-    :param seen_priorities: the sorted dict of existing candidates
-    :param candidate: the candidate to add
-    """
-    eq_prio_list = seen_priorities.get(candidate.priority)
-    if not eq_prio_list:
-        eq_prio_list = seen_priorities[candidate.priority] = []
-    eq_prio_list.append(candidate)
-
-
-class QueuedVisit(NamedTuple):
-    """
-    A queued visitation of a trie for a search
-    """
-    rank: int
-    depth: int
-    trie: CandTrieNode
-    var_dict: Dict[TypeVar, type]
-
-
-class QueuedError(NamedTuple):
-    """
-    A queued error, signifying that an error occurred when searching a node of a certain rank
-    """
-    rank: int
-    error: Optional[Exception]
 
 
 class CachedSearch:
@@ -98,89 +30,34 @@ class CachedSearch:
         """
         self.query = key
 
-        self.visitation_queue = SortedList(key=lambda x: -x.rank)
-        ct = owner.candidate_trie
-        r: CandTrieNode = ct.root
-        self.visitation_queue.add(QueuedVisit(0, 0, r, {}))
+        self.layer_iter = owner.candidate_topsets[len(key)].layers()
+
         self.sorted = []
 
     def advance(self):
-        """
-        advance the search by 1 rank
+        layer: Optional[List[Candidate]] = next(self.layer_iter, None)
+        if layer is None:
+            self.layer_iter = None
+            return None
+        ret = []
+        for cand in layer:
+            v = cand.match(self.query)
+            if isinstance(v, MatchException):
+                # ensure the error will be raised again if called
+                self.layer_iter = chain([layer], self.layer_iter)
+                raise v
+            if v:
+                if not ret or ret[-1][0].priority != cand.priority:
+                    ret.append([cand])
+                else:
+                    ret[-1].append(cand)
 
-        :return: only the members of the new rank, after adding them to the cache for future searches
-        """
-        ret = SortedDict()
-
-        curr_rank = self.visitation_queue[-1].rank
-        while self.visitation_queue:
-            v_rank = self.visitation_queue[-1].rank
-            if v_rank != curr_rank:
-                break
-            qv = self.visitation_queue[-1]
-            if isinstance(qv, QueuedError):
-                raise qv.error
-            nexts = self.visit(qv, ret)
-            # we only modify the queue after visit, because if an exception happened we want it to repeat
-            self.visitation_queue.pop()
-            self.visitation_queue.update(nexts)
-
-        new_layers = process_new_layers(reversed(ret.values()))
-        self.sorted.extend(new_layers)
-        return new_layers
-
-    def visit(self, qv: QueuedVisit, results: SortedDict[Any, List[Candidate]]):
-        """
-        evaluate a queued visit, adding all the candidates of the rank into results
-
-        :param qv: the queued visit to evaluate
-        :param results: the dict to add all valid candidates to
-        :return: an iterator of all the future queued visits originating from this visit
-        """
-        if qv.depth == len(self.query):
-            value = qv.trie.value(None)
-            if value:
-                for candidate in value.values():
-                    add_priority(results, candidate)
-            return
-        curr_key = self.query[qv.depth]
-        children: RankedChildrenExhaustion = qv.trie.children.exhaustion()
-        child = children.exhaust(curr_key, None)
-        if child:
-            yield QueuedVisit(qv.rank, qv.depth + 1, child, qv.var_dict)
-
-        # skip the fist element in mro, since it is an exact match
-        mro = iter(curr_key.__mro__)
-        next(mro)
-
-        for child in children.exhaust_many(mro):
-            yield QueuedVisit(qv.rank + 1, qv.depth + 1, child, qv.var_dict)
-
-        for child_type, child in children.iter_unexhausted_special_items():
-            next_var_dict = qv.var_dict
-            if isinstance(child_type, TypeVarKey) and (child_type.inner not in next_var_dict):
-                try:
-                    constrained = constrain_type(curr_key, child_type.inner)
-                except MatchException as e:
-                    yield QueuedError(qv.rank + e.rank_offset, e)
-                    continue
-                if not constrained:
-                    continue
-
-                next_var_dict = dict(next_var_dict)
-                next_var_dict[child_type.inner] = constrained
-
-            match = child_type.match(curr_key, next_var_dict)
-            if isinstance(match, MatchException):
-                yield QueuedError(qv.rank + match.rank_offset, match)
-            elif match is None:
-                continue
-            else:
-                yield QueuedVisit(qv.rank + match, qv.depth + 1, child, next_var_dict)
+        self.sorted.extend(reversed(ret))
+        yield from reversed(ret)
 
     def __iter__(self):
         yield from self.sorted
-        while self.visitation_queue:
+        while self.layer_iter:
             yield from self.advance()
 
 
@@ -192,6 +69,11 @@ class MultiDispatch:
     The central class, a callable that can delegate to multiple candidates depending on the types of parameters
     """
 
+    class TieredTopologicalSet(TopologicalSet):
+        @staticmethod
+        def gt_factory():
+            return SortedSet(key=lambda x: x.inner.priority)
+
     def __init__(self, name: str = None, doc: str = None):
         """
         :param name: an optional name for the callable
@@ -200,7 +82,8 @@ class MultiDispatch:
         self.__name__ = name
         self.__doc__ = doc
 
-        self.candidate_trie: CandTrie = RankedChildrenTrie()
+        # self.candidate_trie: CandTrie = RankedChildrenTrie()
+        self.candidate_topsets: Dict[int, TopologicalSet[Candidate]] = {}
         self.cache: Dict[int, Dict[Tuple[type, ...], CachedSearch]] = {}
 
     def _clean_cache(self, sizes: Iterable[int]):
@@ -220,13 +103,12 @@ class MultiDispatch:
         :param candidate: the candidate to add
         :param clean_cache: whether to clean the relevant cache
         """
-        sd = self.candidate_trie.get(candidate.types)
-        if sd is None:
-            sd = self.candidate_trie[candidate.types] = SortedDict()
-        if candidate.priority in sd:
-            raise ValueError(f'cannot insert candidate, a candidate of equal types ({candidate.types})'
-                             f' and priority ({candidate.priority}) exists ')
-        sd[candidate.priority] = candidate
+        sc = self.candidate_topsets.get(len(candidate.types))
+        if sc is None:
+            sc = self.candidate_topsets[len(candidate.types)] = self.TieredTopologicalSet()
+        if not sc.add(candidate):
+            raise ValueError(f'A candidate of equal types ({candidate.types})'
+                             f' and priority ({candidate.priority}) exists')
 
         if not self.__name__:
             self.__name__ = candidate.__name__
@@ -360,19 +242,101 @@ class MultiDispatch:
         get all the candidates defined in the multidispatch.
          Candidates are sorted by their priority, then topologically.
         """
-        ret = SortedDict()
-        for sd in self.candidate_trie.values():
-            for k, v in sd.items():
-                to = ret.get(k)
-                if to is None:
-                    to = ret[k] = TopologicalOrder()
-                to.add(v)
-
-        return chain.from_iterable(
-            chain.from_iterable(to.sorted_layers()) for to in reversed(ret.values())
-        )
+        return chain.from_iterable(self.candidate_topsets.values())
 
     def __str__(self):
         if self.__name__:
             return f'<MultiDispatch {self.__name__}>'
         return super().__str__()
+
+    def potential_conflicts(self, clear_subclass_cache = True) -> PotentialConflictSet:
+        def sub_layers(layer: Iterable[Candidate]):
+            s_layer = []
+            for i in layer:
+                if s_layer and i.priority != s_layer[-1].priority:
+                    yield s_layer
+                    s_layer = [i]
+                else:
+                    s_layer.append(i)
+            if s_layer:
+                yield s_layer
+
+        def conf_layer(layer: Iterable[Candidate], ret: PotentialConflictSet):
+            def get_ambiguities(types0, types1, dict0, dict1):
+                if not types0:
+                    assert not types1
+                    return [[]]
+
+                t0, *r0 = types0
+                t1, *r1 = types1
+                m0 = t0.match_types(dict0)
+                m1 = t1.match_types(dict1)
+                amb_set = m0 & m1
+                if not amb_set:
+                    return None
+                t0_undefined = isinstance(t0, TypeVarKey) and t0.inner not in dict0
+                t1_undefined = isinstance(t1, TypeVarKey) and t1.inner not in dict1
+                if not (t0_undefined or t1_undefined):
+                    sa = get_ambiguities(r0, r1, dict0, dict1)
+                    if sa is None:
+                        return None
+                    ret = [[amb_set, *s] for s in sa]
+                else:
+                    ret = []
+                    for a, b in product(m0, m1):
+                        if t0_undefined:
+                            dict0[t0.inner] = class_type_key(a)
+                        if t1_undefined:
+                            dict1[t1.inner] = class_type_key(b)
+                        sa = get_ambiguities(r0, r1, dict0, dict1)
+                        if sa is None:
+                            continue
+                        ret.extend([{a}, *s] for s in sa)
+                    if t0_undefined:
+                        del dict0[t0.inner]
+                    if t1_undefined:
+                        del dict1[t1.inner]
+                return ret
+
+            def get_errors(types, dict_, i=0):
+                if not types:
+                    return
+                t, *r = types
+                err_types = t.error_types(dict_)
+                if err_types:
+                    yield i, err_types, dict(dict_)
+                    return
+
+                t_undefined = isinstance(t, TypeVarKey) and t.inner not in dict_
+                if t_undefined:
+                    matches = t.match_types(dict_)
+                    for m in matches:
+                        dict_[t.inner] = class_type_key(m)
+                        yield from get_errors(r, dict_, i+1)
+                    del dict_[t.inner]
+                else:
+                    yield from get_errors(r, dict_, i+1)
+
+            def process_err_cand(cand):
+                errs = list(get_errors(cand.types, {}, 0))
+                for i, et, dvr in errs:
+                    for t, ex_t in et:
+                        ret.add_error(i, t, ex_t, dvr, c0)
+
+            for s_layer in sub_layers(layer):
+                for c0, c1 in combinations(s_layer, 2):
+                    process_err_cand(c0)
+                    for amb in get_ambiguities(c0.types, c1.types, {}, {}) or ():
+                        ret.add_ambiguities(tuple(amb), {c0, c1})
+                process_err_cand(s_layer[-1])
+
+        ret = PotentialConflictSet(self)
+
+        for ts in self.candidate_topsets.values():
+            for layer in ts.layers():
+                conf_layer(layer, ret)
+
+        if clear_subclass_cache:
+            all_subclasses.cache_clear()
+
+        return ret

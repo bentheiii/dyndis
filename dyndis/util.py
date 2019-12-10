@@ -73,3 +73,24 @@ class SubPriority:
 
     def __hash__(self):
         return hash(self.key)
+
+
+class Bottom:
+    def __init__(self):
+        raise Exception('this class cannot be instantiated')
+
+
+def liberal_cache(func):
+    cache = {}
+
+    def ret(arg):
+        try:
+            return cache[arg]
+        except TypeError:
+            return func(arg)
+        except KeyError:
+            pass
+        res = cache[arg] = func(arg)
+        return res
+
+    return ret

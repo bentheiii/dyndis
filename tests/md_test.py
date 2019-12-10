@@ -3,7 +3,8 @@ from unittest import TestCase
 
 from dyndis import MultiDispatch, UnboundAttr, Self
 from dyndis.exceptions import NoCandidateError, AmbiguityError
-from dyndis.multidispatch import AmbiguousBindingError
+from dyndis.topological_set import TopologicalSet
+from dyndis.type_keys.type_key import AmbiguousBindingError
 
 
 class GeneralTest(TestCase):
@@ -54,6 +55,7 @@ class GeneralTest(TestCase):
         for level in range(n):
             class Ret(base):
                 depth = level
+
             Ret.__qualname__ = Ret.__name__ = f'hierarchy[{level}]'
 
             ret.append(Ret)
@@ -93,12 +95,14 @@ class GeneralTest(TestCase):
 
             def foo_(i0: h0, i1: h1, i2: h2):
                 return
+
             foo_.ind = len(funcs)
             funcs.append(foo_)
 
             foo.add_func(foo_)
         cands = foo.candidates_for_types(hierarchy[-1], hierarchy[-1], hierarchy[-1])
         cands = [[c.func.ind for c in l] for l in cands]
+
         self.assertEqual(len(cands), 4)
         self.assertCountEqual(cands[0], [1])
         self.assertCountEqual(cands[1], [0, 2, 4, 5, 7])
@@ -123,6 +127,27 @@ class DefaultTest(TestCase):
         self.assertEqual(foo(4, (1, 2)), 4 * 6)
         self.assertEqual(foo(4, 2), 16)
         self.assertEqual(foo(4, 2, 3), 24)
+
+    def test_redundancy(self):
+        foo = MultiDispatch()
+
+        @foo.add_func()
+        def foo(a: int):
+            pass
+
+        with self.assertRaises(ValueError):
+            @foo.add_func()
+            def foo(a: int):
+                pass
+
+        @foo.add_func(priority=1)
+        def foo(a: int):
+            pass
+
+        with self.assertRaises(ValueError):
+            @foo.add_func(priority=1)
+            def foo(a: int):
+                pass
 
 
 class ExampleTests(TestCase):
@@ -268,7 +293,7 @@ class TypeVarTest(TestCase):
         def foo(a: T, b: T):
             return len(a) * len(b)
 
-        B = TypeVar('B', bool, float)
+        B = TypeVar('B', bool, type(None))
 
         @foo.add_func()
         def foo(a: bool, b: bool):
@@ -444,3 +469,48 @@ class TypeVarTest(TestCase):
         self.assertEqual(foo(object(), A()), 0)
         self.assertEqual(foo(object(), B()), 1)
         self.assertEqual(foo(object(), C()), 1)
+
+
+class TopologicalSetTests(TestCase):
+    class Divnum(int):
+        def __lt__(self, other):
+            return other % self == 0
+
+    def assertLayers(self, ts: TopologicalSet, layers):
+        self.assertEqual([set(i) for i in ts.layers()],
+                         layers)
+
+    def test_simple(self):
+        ts = TopologicalSet([self.Divnum(i) for i in (1, 6, 11, 18, 306, 17)])
+        self.assertLayers(ts,
+                          [
+                              {1},
+                              {6, 11, 17},
+                              {18},
+                              {306}
+                          ])
+
+        ts.remove(6)
+        self.assertLayers(ts,
+                          [
+                              {1},
+                              {18, 11, 17},
+                              {306}
+                          ])
+
+    def test_removal(self):
+        ts = TopologicalSet([self.Divnum(i) for i in (1, 2, 3, 6, 12, 18)])
+        self.assertLayers(ts,
+                          [
+                              {1},
+                              {2, 3},
+                              {6},
+                              {12, 18}
+                          ])
+        ts.remove(6)
+        self.assertLayers(ts,
+                          [
+                              {1},
+                              {2, 3},
+                              {12, 18}
+                          ])
