@@ -114,7 +114,8 @@ class CandidateSet(MutableSet[TopologicalNode]):
 
         def _matches(node: TrieNode[TypeKey, TopologicalNode], ind, defined_type_vars):
             if ind == len(query):
-                yield node.value()
+                if node.has_value:
+                    yield node.value()
                 return
             q = query[ind]
             for k, child in node.children.items():

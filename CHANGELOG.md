@@ -1,4 +1,9 @@
 # dyndis changelog
+## 0.1.0: unreleased
+### Internal
+* candidates are no longer divided by their argument count
+### Minor
+* added a basic overview of how the candidates are stored
 ## 0.0.5: 2019-12-10
 ### Changed
 * implementors now remove themselves from the class they are declared in

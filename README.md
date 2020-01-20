@@ -39,7 +39,7 @@ All candidates for parameters of types <T0, T1, T2..., TN> are ordered as follow
 If two candidates have equal priority, and neither inherits of the other, an exception (of type `dyndis.AmbiguityError`) is raised (unless a candidate with greater precedence than both succeeds first).
 
 If a candidate returns `NotImplemented`, the next candidate in the order is tried.
-## Tries and Caches
+## Topology, Tries and Caches
 `dyndis` uses a topological set composing non-compressing tries to order all its candidates by the parameter types, so that most of the candidates can be disregarded without any overhead.
 
 Considering all these candidates for every lookup gets quite slow and encumbering very quickly. For this reason, every `MultiDispatch` automatically caches any work done by previous calls when it comes to sorting and processing candidates. The cache maintains the laziness of the lookup, and minimizes the work done at any given time.

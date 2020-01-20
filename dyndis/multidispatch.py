@@ -4,8 +4,6 @@ from functools import partial
 from itertools import chain
 from typing import Dict, Tuple, List, Callable, Union, Iterable, Optional, Iterator
 
-from sortedcontainers import SortedList
-
 from dyndis.candidate import Candidate
 from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod, MultiDispatchClassMethod
 from dyndis.exceptions import NoCandidateError, AmbiguityError
@@ -15,7 +13,6 @@ from dyndis.type_keys.type_key import MatchException
 from dyndis.util import RawReturnValue
 
 RawNotImplemented = RawReturnValue(NotImplemented)
-
 
 class CachedSearch:
     """
@@ -29,7 +26,7 @@ class CachedSearch:
         """
         self.query = key
 
-        self.layer_iter = iter(owner.candidate_topsets[len(key)].layers)
+        self.layer_iter = iter(owner.candidate_set.layers)
 
         self.sorted = []
 
@@ -79,7 +76,7 @@ class MultiDispatch:
         self.__doc__ = doc
 
         # self.candidate_trie: CandTrie = RankedChildrenTrie()
-        self.candidate_topsets: Dict[int, TopologicalSet[Candidate]] = {}
+        self.candidate_set: TopologicalSet[Candidate] = TopologicalSet()
         self.cache: Dict[int, Dict[Tuple[type, ...], CachedSearch]] = {}
 
     def _clean_cache(self, sizes: Iterable[int]):
@@ -99,10 +96,7 @@ class MultiDispatch:
         :param candidate: the candidate to add
         :param clean_cache: whether to clean the relevant cache
         """
-        sc = self.candidate_topsets.get(len(candidate.types))
-        if sc is None:
-            sc = self.candidate_topsets[len(candidate.types)] = TopologicalSet()
-        if not sc.add(candidate):
+        if not self.candidate_set.add(candidate):
             raise ValueError(f'A candidate of equal types ({candidate.types})'
                              f' and priority ({candidate.priority}) exists')
 
@@ -239,7 +233,7 @@ class MultiDispatch:
         get all the candidates defined in the multidispatch.
          Candidates are sorted by their priority, then topologically.
         """
-        return map(lambda x: x.inner, chain.from_iterable(self.candidate_topsets.values()))
+        return map(lambda x: x.inner, self.candidate_set)
 
     def __str__(self):
         if self.__name__:
