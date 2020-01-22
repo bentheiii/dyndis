@@ -7,7 +7,7 @@ setuptools.setup(
     version=dyndis.__version__,
     url=dyndis.__url__,
     author=dyndis.__author__,
-    packages=['dyndis', 'dyndis_data'],
+    packages=['dyndis', 'dyndis_data', 'dyndis.type_keys'],
     python_requires='>=3.7.0',
     include_package_data=True,
     data_files=[
