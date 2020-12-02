@@ -1,10 +1,18 @@
 # dyndis changelog
-## 0.1.0: unreleased
+## 0.2.0
+### Internal
+* Added poetry + workflows
+### Fixed
+* ABC cache is now respected
+## 0.1.1
+### Fixed
+* bug with missing packages
+## 0.1.0
 ### Internal
 * candidates are no longer divided by their argument count
 ### Minor
 * added a basic overview of how the candidates are stored
-## 0.0.5: 2019-12-10
+## 0.0.5
 ### Changed
 * implementors now remove themselves from the class they are declared in
 * generic alias checking method changed
@@ -19,7 +27,7 @@
 ## Enhanced
 * faster topological sorting
 * faster trie implementation (no recursion, less space)
-## 0.0.4: 2019-11-25
+## 0.0.4
 ### enhanced
 * search now first looks up and rules out all children by MRO, then iterates over all remaining children with slower issubclass check
 ### added
@@ -32,7 +40,7 @@
 * `complex` is now interpreted as `Union[float, int, complex]`
 * `typing.Any` now longer evaluates to object, but rather is an inexact match to any type
 
-## 0.0.3: 2019-11-11
+## 0.0.3
 ### fixed
 * error message for multiple candidates
 ### changed
@@ -42,7 +50,7 @@
 * changed op to a regular function
 * added method, and staticmethod adapters
 
-## 0.0.2: 2019-10-31
+## 0.0.2
 ### added
 * trie improved candidate lookup
 * added additional rule for least-key exclusion
@@ -54,5 +62,5 @@
 ### removed
 * got rid of the priority alias, just number now
 
-## 0.0.1: 2019-10-28
+## 0.0.1
 * initial
