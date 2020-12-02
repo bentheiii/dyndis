@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from tests.peano import unit, n
+from tests.unittest.peano import unit, n
 
 
 class PeanoTests(TestCase):
