@@ -146,10 +146,7 @@ class UnboundMap(UnboundDelegate):
 
     def __repr__(self):
         return f'{type(self).__name__}(' \
-               + ", ".join(chain(
-            (repr(self.func),),
-            *(t.__name___ for t in self.type_vars)
-        )) \
+               + ", ".join(chain((repr(self.func),), *(t.__name___ for t in self.type_vars))) \
                + ')'
 
 

@@ -62,10 +62,7 @@ class UnboundFriend(UnboundDelegate):
 
     def __repr__(self):
         return f'{type(self).__name__}(' \
-               + ", ".join(chain(
-            (repr(self.name_func),),
-            *(t.__name___ for t in self.type_vars)
-        )) \
+               + ", ".join(chain((repr(self.name_func),), *(t.__name__ for t in self.type_vars))) \
                + (", namespace=" + repr(self.namespace) if self.namespace is not ... else "") \
                + (", default=" + repr(self.default) if self.default is not _raise else "") \
                + ')'

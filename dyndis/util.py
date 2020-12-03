@@ -7,7 +7,6 @@ except ImportError:
     def get_origin(tp):
         return getattr(tp, '__origin__', None)
 
-
     def get_args(tp):
         return getattr(tp, '__args__', ())
 

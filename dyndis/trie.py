@@ -8,6 +8,7 @@ V = TypeVar('V')
 _blank = object()
 _no_default = object()
 
+
 # todo make index-invariant queries?
 
 class TrieNode(Generic[K, V]):

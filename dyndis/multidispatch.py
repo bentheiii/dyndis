@@ -14,6 +14,7 @@ from dyndis.util import RawReturnValue
 
 RawNotImplemented = RawReturnValue(NotImplemented)
 
+
 class CachedSearch:
     """
     A cached search for candidates of a specific type tuple
@@ -109,7 +110,8 @@ class MultiDispatch:
 
     def add_candidates(self, candidates: Iterable[Candidate]):
         """
-        Add a collection of candiates to the multidispatch. If the multidispatch has no set name or doc, the name or doc of the first candidate with the relevant attributes will be used.
+        Add a collection of candiates to the multidispatch. If the multidispatch has no set name or doc, the name or doc
+         of the first candidate with the relevant attributes will be used.
 
         :param candidates: an iterable of candidates to be added.
         """
@@ -190,8 +192,8 @@ class MultiDispatch:
 
     def op(self):
         """
-        :return: an adapter for the multidispatch to be used as an adapter, returning NotImplemented if no candidates match,
-         and setting the multidispatch's name if necessary
+        :return: an adapter for the multidispatch to be used as an adapter, returning NotImplemented if no candidates
+         match, and setting the multidispatch's name if necessary
         """
         return MultiDispatchOp(self)
 
