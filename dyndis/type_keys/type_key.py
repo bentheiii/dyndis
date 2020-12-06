@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Union, Dict, TypeVar, Hashable, Any, Iterable, Optional, Tuple, ByteString, Generic, MutableSet
+from typing import Union, Dict, Hashable, Any, Iterable, Optional, Tuple, ByteString, Generic, MutableSet, TypeVar
 from abc import abstractmethod, ABC
 
 from dyndis.util import get_args, get_origin, liberal_cache
@@ -144,6 +144,7 @@ def type_keys(t) -> Tuple[Union[CoreTypeKey, SelfKeyCls]]:
             for t in tk.split():
                 yield from recursive_split(t)
         else:
+            assert isinstance(tk, (CoreTypeKey, SelfKeyCls))
             yield tk
 
     tk = type_key(t)
@@ -224,12 +225,8 @@ class ClassKey(CoreWrapperKey[type]):
     A type key of a superclass
     """
 
-    def __init__(self, *args):
-        super().__init__(*args)
-        assert isinstance(self.inner, type)
-
     def match(self, query_key: type, defined_type_var) -> Union[bool, Exception]:
-        return query_key is self.inner or issubclass(query_key, self.inner)
+        return issubclass(query_key, self.inner)
 
     def __le__(self, other):
         if isinstance(other, ClassKey):
@@ -320,6 +317,7 @@ class AnyKeyCls(CoreWrapperKey[type(Any)]):
     """
     A singleton type key for the Any object, that encompasses all other keys
     """
+
     def __init__(self):
         super().__init__(Any)
 
