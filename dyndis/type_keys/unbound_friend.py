@@ -4,6 +4,7 @@ from types import SimpleNamespace, MappingProxyType
 from typing import Callable
 from warnings import warn
 
+import builtins
 import sys
 
 from dyndis.type_keys.delegates import UnboundDelegate, _raise
@@ -20,7 +21,7 @@ class UnboundFriend(UnboundDelegate):
         :param namespace: the name space to search in, default will search in the namespaces of the types
         :param default: if provided, this value will be returned instead of raising an error
         """
-        super().__init__(type_vars)
+        super().__init__(*type_vars)
         self.name_func = name_func
         self.namespace = namespace
         self.default = default
@@ -40,8 +41,7 @@ class UnboundFriend(UnboundDelegate):
         elif isinstance(self.namespace, str):
             ns = sys.modules[self.namespace]
         elif isinstance(self.namespace, (dict, MappingProxyType)):
-            ns = SimpleNamespace()
-            ns.__dict__.update(self.namespace)
+            ns = SimpleNamespace(**self.namespace)
         else:
             ns = self.namespace
 
@@ -77,17 +77,13 @@ def get_namespaces(cls: type):
     if qname.startswith(mod_name):
         qname = qname[len(mod_name):]
     mod = sys.modules[mod_name]
-    ret = [mod]
+    ret = [builtins, mod]
     for name in qname.split('.'):
         ns = getattr(ret[-1], name, None)
-        if ns is None:
-            raise NameError(f'cannot reach {cls.__qualname__}')
-        if not isclass(ns) and not ismodule(ns):
-            raise TypeError(f'{ns} is not a class')
-        if ns is cls:
-            return StackedNamespaces.make(ret)
+        if ns is None or (not isclass(ns) and not ismodule(ns)):
+            break
         ret.append(ns)
-    raise NameError(f'{cls.__qualname__} path does not lead to class)')
+    return StackedNamespaces.make(ret)
 
 
 class CompoundNamespaces:

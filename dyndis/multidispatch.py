@@ -5,7 +5,7 @@ from itertools import chain
 from typing import Dict, Tuple, List, Callable, Union, Iterable, Optional, Iterator
 
 from dyndis.candidate import Candidate
-from dyndis.descriptors import MultiDispatchOp, MultiDispatchMethod, MultiDispatchStaticMethod, MultiDispatchClassMethod
+from dyndis.descriptors import MultiDispatchOp
 from dyndis.exceptions import NoCandidateError, AmbiguityError
 from dyndis.implementor import Implementor
 from dyndis.topological_set import TopologicalSet, CandidateSet
@@ -128,7 +128,7 @@ class MultiDispatch:
 
         :param priority: the priority of the candidates.
         :param symmetric: if set to true, the permutations of all the candidates are added as well
-        :param func: the function to used
+        :param func: the function to register
         """
         if not func:
             if callable(priority):
@@ -197,27 +197,6 @@ class MultiDispatch:
         """
         return MultiDispatchOp(self)
 
-    def method(self):
-        """
-        :return: an adapter for the multidispatch to be used as a method, raising error if no candidates match,
-         and setting the multidispatch's name if necessary
-        """
-        return MultiDispatchMethod(self)
-
-    def classmethod(self):
-        """
-        :return: an adapter for the multidispatch to be used as a class method, raising error if no candidates match,
-         and setting the multidispatch's name if necessary
-        """
-        return MultiDispatchClassMethod(self)
-
-    def staticmethod(self):
-        """
-        :return: an adapter for the multidispatch to be used as a static method, raising error if no candidates match,
-         and setting the multidispatch's name if necessary
-        """
-        return MultiDispatchStaticMethod(self)
-
     def implementor(self, *args, **kwargs) -> Union[Callable[[Callable], 'Implementor'], 'Implementor']:
         """
         create an Implementor for the MultiDispatch and call its implementor method with the arguments
@@ -241,3 +220,8 @@ class MultiDispatch:
         if self.__name__:
             return f'<MultiDispatch {self.__name__}>'
         return super().__str__()
+
+    def __get__(self, instance, owner):
+        if instance:
+            return partial(self, instance)
+        return self

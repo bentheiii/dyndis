@@ -1,7 +1,5 @@
 from functools import partial
 
-from dyndis.exceptions import NoCandidateError
-
 
 class MultiDispatchDelegate:
     """
@@ -28,43 +26,3 @@ class MultiDispatchOp(MultiDispatchDelegate):
 
     def __call__(self, *args, **kwargs):
         return self.md.get(args, kwargs, default=NotImplemented)
-
-
-_no_answer = object()
-
-
-class MultiDispatchRaisingDelegate(MultiDispatchDelegate):
-    def __call__(self, *args, **kwargs):
-        ret = self.md.get(args, kwargs, default=_no_answer)
-        if ret is _no_answer:
-            raise NoCandidateError(args)
-        return ret
-
-
-class MultiDispatchMethod(MultiDispatchRaisingDelegate):
-    """
-    A method adapter for a MultiDispatch
-    """
-
-    def __get__(self, instance, owner):
-        if instance:
-            return partial(self.__call__, instance)
-        return self
-
-
-class MultiDispatchClassMethod(MultiDispatchRaisingDelegate):
-    """
-    A static method adapter for a MultiDispatch
-    """
-
-    def __get__(self, instance, owner):
-        return partial(self.__call__, owner)
-
-
-class MultiDispatchStaticMethod(MultiDispatchRaisingDelegate):
-    """
-    A static method adapter for a MultiDispatch
-    """
-
-    def __get__(self, instance, owner):
-        return self
