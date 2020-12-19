@@ -6,7 +6,7 @@ from typing import Mapping, TypeVar, Union, FrozenSet, Any
 try:
     from typing import TypedDict
 except ImportError:
-    pass
+    TYPED_DICT_META = None
 else:
     TYPED_DICT_META = type(TypedDict('blank', {}))
     del TypedDict
