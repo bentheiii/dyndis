@@ -3,7 +3,7 @@ from typing import Union, TypeVar
 
 from pytest import raises
 
-from dyndis import MultiDispatch
+from dyndis import MultiDispatch, AmbiguityError
 
 
 def test_basic_onearg():
@@ -62,7 +62,7 @@ def test_ambiguity():
         return 1
 
     assert foo(object) == 0
-    with raises(TypeError):
+    with raises(AmbiguityError):
         foo(True)
 
 

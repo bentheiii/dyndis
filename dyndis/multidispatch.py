@@ -8,7 +8,9 @@ from typing import Callable, TypeVar, Generic, Dict, Set, List, Mapping, get_typ
     MutableMapping
 from weakref import WeakValueDictionary, proxy
 
+
 from dyndis.annotation_filter import AnnotationFilter, annotation_filter
+from dyndis.exceptions import AmbiguityError
 from dyndis.implementor import Implementor
 from dyndis.topological_sort import topological_sort
 from dyndis.weaktupledict import WeakTupleDict
@@ -100,7 +102,7 @@ class MultiDispatch(Generic[T], Callable[..., T]):
             if len(valid_cands) == 1:
                 ret.append(valid_cands[0])
             elif valid_cands:
-                ret.append(TypeError(f'ambiguous call between {", ".join(str(v) for v in valid_cands)}'))
+                ret.append(AmbiguityError(f'ambiguous call between {", ".join(str(v) for v in valid_cands)}'))
                 break
         self._lookup_cache[len(t_args)][t_args] = ret
         return ret
