@@ -1,16 +1,11 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Union, Dict, TypeVar, Hashable, Any, Iterable, Optional, Tuple, ByteString, Generic, MutableSet
+from typing import Union, Dict, Hashable, Any, Iterable, Optional, Tuple, ByteString, Generic, MutableSet, TypeVar,\
+    Iterator
 from abc import abstractmethod, ABC
 
 from dyndis.util import get_args, get_origin, liberal_cache
-
-try:
-    from typing import Literal, Protocol
-except ImportError:
-    Literal = None
-    Protocol = None
 
 
 class MatchException(RuntimeError):
@@ -27,6 +22,13 @@ class AmbiguousBindingError(MatchException):
                          f' but it is a subclass of multiple non-related constraints: {unrelated_classes}'
                          f' (consider adding {subclass} as an explicit constraint in {typevar},'
                          f' or a specialized overload for {subclass})')
+
+
+class TypeLikeMixin:
+    def __call__(self):
+        # typing's structures (like Union) will reject all non-callable arguments,
+        # so we have to make TypeKey seem callable
+        raise TypeError(f"can't call {type(self)}")  # pragma: no cover
 
 
 class TypeKey(ABC):
@@ -59,11 +61,6 @@ class TypeKey(ABC):
         """
         pass
 
-    def __call__(self):
-        # typing's structures (like Union) will reject all non-callable arguments,
-        # so we have to make TypeKey seem callable
-        raise TypeError(f"can't call {type(self)}")
-
 
 @liberal_cache
 def type_key(t) -> TypeKey:
@@ -93,9 +90,6 @@ def type_key(t) -> TypeKey:
         return SingletonTypeKey(t)
 
     origin = get_origin(t)
-
-    if Literal and origin is Literal:
-        return LiteralTypeKey(t)
     if origin is Union:
         return UnionTypeKey(t)
     if isinstance(origin, type) and is_type_like(t):
@@ -144,6 +138,7 @@ def type_keys(t) -> Tuple[Union[CoreTypeKey, SelfKeyCls]]:
             for t in tk.split():
                 yield from recursive_split(t)
         else:
+            assert isinstance(tk, (CoreTypeKey, SelfKeyCls))
             yield tk
 
     tk = type_key(t)
@@ -224,12 +219,8 @@ class ClassKey(CoreWrapperKey[type]):
     A type key of a superclass
     """
 
-    def __init__(self, *args):
-        super().__init__(*args)
-        assert isinstance(self.inner, type)
-
     def match(self, query_key: type, defined_type_var) -> Union[bool, Exception]:
-        return query_key is self.inner or issubclass(query_key, self.inner)
+        return issubclass(query_key, self.inner)
 
     def __le__(self, other):
         if isinstance(other, ClassKey):
@@ -320,6 +311,7 @@ class AnyKeyCls(CoreWrapperKey[type(Any)]):
     """
     A singleton type key for the Any object, that encompasses all other keys
     """
+
     def __init__(self):
         super().__init__(Any)
 
@@ -363,8 +355,6 @@ class SplittingTypeKey(TypeKey):
             -> Union[bool, MatchException]:
         for s in self.split():
             r = s.match(query_key, defined_type_var)
-            if isinstance(r, MatchException):
-                return r
             if r:
                 return r
         return False
@@ -402,7 +392,7 @@ class SplittingClassTypeKey(WrapperKey[type], SplittingTypeKey):
         super().__init__(inner)
         self.aliases = self.TYPE_ALIASES[inner]
 
-    def split(self) -> Optional[Iterable[TypeKey]]:
+    def split(self) -> Optional[Iterator[TypeKey]]:
         return (ClassKey(a) for a in self.aliases)
 
 
@@ -429,24 +419,9 @@ class UnionTypeKey(SplittingTypeKey, WrapperKey):
         return (type_key(a) for a in get_args(self.inner))
 
 
-if Literal:
-    class LiteralTypeKey(WrapperKey, SplittingTypeKey):
-        """
-        A type key for literal types
-        """
-
-        def __init__(self, inner):
-            if frozenset(get_args(inner)) <= frozenset((..., NotImplemented, None)):
-                raise TypeError('cannot have non-singleton in literal key')
-            super().__init__(inner)
-
-        def split(self) -> Iterable[TypeKey]:
-            return (type_key(a) for a in get_args(self.inner))
-
-
 # endregion
 
-class SelfKeyCls(TypeKey):
+class SelfKeyCls(TypeKey, TypeLikeMixin):
     """
     A special type key that evaluates to the candidate's self_type when the candidate is created
     """

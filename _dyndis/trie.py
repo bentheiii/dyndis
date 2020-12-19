@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from typing import TypeVar, Generic, Iterable, MutableMapping, Callable, List, Any
+from typing import TypeVar, Generic, Iterable, MutableMapping, Callable, List, Any, Optional
 
 K = TypeVar('K')
 V = TypeVar('V')
 
 _blank = object()
 _no_default = object()
+
 
 # todo make index-invariant queries?
 
@@ -158,7 +159,7 @@ class Trie(Generic[K, V], MutableMapping[Iterable[K], V]):
     def __iter__(self, key_converter=tuple):
         return (k for (k, _) in self.items(key_converter))
 
-    def items(self, key_converter: Callable[[List[K]], Any] = tuple):
+    def items(self, key_converter: Optional[Callable[[List[K]], Any]] = tuple):
         if key_converter:
             return ((key_converter(k), v) for (k, v) in self._items())
         return ((k, v) for (k, v) in self._items())

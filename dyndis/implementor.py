@@ -1,80 +1,81 @@
-from functools import partial
-from itertools import chain
-from numbers import Number
-from typing import NamedTuple, Callable, List, Union
+from collections import ChainMap
+from functools import update_wrapper
+from types import MethodDescriptorType
+from typing import Callable, List, NamedTuple, Dict, Any, Optional
 from warnings import warn
 
-from dyndis.candidate import Candidate
-from dyndis.type_keys.type_key import Self
 
-
-class QueuedImplementation(NamedTuple):
-    """
-    An implementation inside a class that is waiting for the class to complete its creation
-    """
-    priority: Number
+class PendingImplementation(NamedTuple):
     func: Callable
-    permutations: bool
+    md: Any
+    kwargs: Optional[Dict[str, Any]]
 
-    def cands(self, owner):
-        """
-        create a set of candidates when the class is complete
-        """
-        ret = Candidate.from_func(self.priority, self.func, fallback_type_hint=Self, self_type=owner)
-        if self.permutations:
-            ret = chain.from_iterable(r.permutations() for r in ret)
+    def chain_kwargs(self, **parents: ChainMap):
+        if not self.kwargs:
+            return parents
+
+        ret = dict(self.kwargs)
+        for k, parent in parents.items():
+            child = ret.get(k)
+            if not child:
+                ret[k] = parent
+            else:
+                ret[k] = parent.new_child(child)
         return ret
 
 
 class Implementor:
-    """
-    A descriptor that holds candidates that include a class until it is complete
-    """
+    def __init__(self):
+        self.queue: List[PendingImplementation] = []
+        self.done = False
 
-    def __init__(self, multidispatch):
-        """
-        :param multidispatch: the multidispatch to add the candidates to
-        """
-        self.multidispatch = multidispatch
+    def commit(self, cls: type):
+        if self.done:
+            return
+        self.done = True
+        default_annotations = ChainMap({'self': cls, 'cls': type(cls)})
+        extra_namespace = ChainMap({cls.__name__: cls})
+        for queued in self.queue:
+            kwargs = queued.chain_kwargs(
+                default_annotations=default_annotations,
+                extra_namespace=extra_namespace,
+            )
+            queued.md.register(
+                queued.func,
+                **kwargs
+            )
 
-        self.queue: List[QueuedImplementation] = []
-        self.locked = False
+    def __call__(self, md, kwargs, func):
+        if isinstance(func, classmethod):
+            func = func.__func__
+
+        self.queue.append(PendingImplementation(func, md, kwargs))
+        return ImplementorWrapper(self, func)
+
+    def __del__(self):
+        if not self.done:
+            warn(RuntimeWarning('implementor deleted without registering implementations'))
+
+
+class ImplementorWrapper:
+    def __init__(self, implementor: Implementor, func: MethodDescriptorType):
+        self.implementor = implementor
+        self.inner = func
+        update_wrapper(self, func)
 
     def __set_name__(self, owner, name):
-        """
-        indicates that the class is fully created, adds the queued implementors to the multidispatch
-        """
+        self.implementor.commit(owner)
+        self.implementor = None
+        setattr(owner, name, self.inner)
 
-        def check_candidate(candidate):
-            if self.multidispatch.__name__ is not None \
-                    and candidate.__name__ is not None \
-                    and self.multidispatch.__name__.strip('_') != candidate.__name__.strip('_'):
-                warn(f'implementor {candidate} in class {owner.__name__} has dissimilar name from multidispatch'
-                     f' {self.multidispatch}', stacklevel=5)
-            return candidate
+    # although the wrapper does its best to self-destruct, it might still be held as the function, so we have it
+    # imitate its inner value as much as we can
 
-        if self.locked:
-            return
-        self.multidispatch.add_candidates(
-            check_candidate(c) for c in
-            chain.from_iterable(q.cands(owner) for q in self.queue)
-        )
-        self.locked = True
-        # self-destruct
-        delattr(owner, name)
+    def __get__(self, instance, owner):
+        return self.inner.__get__(instance, owner)
 
-    def implementor(self, priority=0, symmetric=False, func=None) \
-            -> Union[Callable[..., 'Implementor'], 'Implementor']:
-        """
-        Add a new queued candidate, usable as a decorator
-        :param priority: the priority of the candidate
-        :param symmetric: if set to true, all the permutations of the candidate will also be added
-        :param func: the function to be added
-        """
-        if not func:
-            return partial(self.implementor, priority, symmetric)
+    def __call__(self, *args, **kwargs):
+        return self.inner(*args, **kwargs)
 
-        if self.locked:
-            raise Exception('the implementor has already been locked, no new functions can be added')
-        self.queue.append(QueuedImplementation(priority=priority, func=func, permutations=symmetric))
-        return self
+    def __getattr__(self, item):
+        return getattr(self.inner, item)

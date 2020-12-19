@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from itertools import chain
-from typing import TypeVar, Set, Union, MutableSet, Any, MutableMapping, List, Iterator, Sequence
+from typing import TypeVar, Set, Union, MutableSet, Any, MutableMapping, List, Sequence
 
 from sortedcontainers import SortedDict
 
@@ -33,7 +33,7 @@ class TopologicalNode:
 
     def layer(self):
         if self._layer is None:
-            self._layer = max(l.layer() for l in self.lt) + 1
+            self._layer = max(less_thans.layer() for less_thans in self.lt) + 1
         return self._layer
 
     def invalidate_layer(self):

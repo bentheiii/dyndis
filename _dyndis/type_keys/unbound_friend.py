@@ -4,6 +4,7 @@ from types import SimpleNamespace, MappingProxyType
 from typing import Callable
 from warnings import warn
 
+import builtins
 import sys
 
 from dyndis.type_keys.delegates import UnboundDelegate, _raise
@@ -20,7 +21,7 @@ class UnboundFriend(UnboundDelegate):
         :param namespace: the name space to search in, default will search in the namespaces of the types
         :param default: if provided, this value will be returned instead of raising an error
         """
-        super().__init__(type_vars)
+        super().__init__(*type_vars)
         self.name_func = name_func
         self.namespace = namespace
         self.default = default
@@ -30,18 +31,13 @@ class UnboundFriend(UnboundDelegate):
         if self.namespace is ...:
             mods = []
             for bt in bound_types:
-                try:
-                    mod = get_namespaces(bt)
-                except (TypeError, NameError) as e:
-                    warn(f'error while extracting namespace of {bt}: {e}')
-                else:
-                    mods.append(mod)
+                mod = get_namespaces(bt)
+                mods.append(mod)
             ns = JoinedNamespaces.make(mods)
         elif isinstance(self.namespace, str):
             ns = sys.modules[self.namespace]
         elif isinstance(self.namespace, (dict, MappingProxyType)):
-            ns = SimpleNamespace()
-            ns.__dict__.update(self.namespace)
+            ns = SimpleNamespace(**self.namespace)
         else:
             ns = self.namespace
 
@@ -62,10 +58,7 @@ class UnboundFriend(UnboundDelegate):
 
     def __repr__(self):
         return f'{type(self).__name__}(' \
-               + ", ".join(chain(
-            (repr(self.name_func),),
-            *(t.__name___ for t in self.type_vars)
-        )) \
+               + ", ".join(chain((repr(self.name_func),), *(t.__name__ for t in self.type_vars))) \
                + (", namespace=" + repr(self.namespace) if self.namespace is not ... else "") \
                + (", default=" + repr(self.default) if self.default is not _raise else "") \
                + ')'
@@ -80,17 +73,13 @@ def get_namespaces(cls: type):
     if qname.startswith(mod_name):
         qname = qname[len(mod_name):]
     mod = sys.modules[mod_name]
-    ret = [mod]
+    ret = [builtins, mod]
     for name in qname.split('.'):
         ns = getattr(ret[-1], name, None)
-        if ns is None:
-            raise NameError(f'cannot reach {cls.__qualname__}')
-        if not isclass(ns) and not ismodule(ns):
-            raise TypeError(f'{ns} is not a class')
-        if ns is cls:
-            return StackedNamespaces.make(ret)
+        if ns is None or (not isclass(ns) and not ismodule(ns)):
+            break
         ret.append(ns)
-    raise NameError(f'{cls.__qualname__} path does not lead to class)')
+    return StackedNamespaces.make(ret)
 
 
 class CompoundNamespaces:
