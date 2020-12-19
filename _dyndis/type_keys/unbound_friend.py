@@ -31,12 +31,8 @@ class UnboundFriend(UnboundDelegate):
         if self.namespace is ...:
             mods = []
             for bt in bound_types:
-                try:
-                    mod = get_namespaces(bt)
-                except (TypeError, NameError) as e:
-                    warn(f'error while extracting namespace of {bt}: {e}')
-                else:
-                    mods.append(mod)
+                mod = get_namespaces(bt)
+                mods.append(mod)
             ns = JoinedNamespaces.make(mods)
         elif isinstance(self.namespace, str):
             ns = sys.modules[self.namespace]

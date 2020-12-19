@@ -1,199 +1,125 @@
-from typing import Sized, Any, Sequence
+from typing import Union, TypeVar, Any
 
-from pytest import raises
-
-from dyndis import MultiDispatch
+from dyndis.annotation_filter import annotation_filter
 
 
-def test_topology():
-    foo = MultiDispatch()
-
-    @foo.add_func()
-    def foo(a: int, b: Sized):
-        return a * len(b)
-
-    @foo.add_func()
-    def foo(a: int, b: Sequence):
-        return a * len(b) * 2
-
-    assert foo(4, "aa") == 16
-    assert foo(4, "a") == 8
-    assert foo(4, set(range(6))) == 24
-    assert foo(4, set((1, 2))) == 8
-
-
-def test_topology_any():
-    foo = MultiDispatch()
-
-    @foo.add_func()
-    def foo(a: Any):
-        return 0
-
-    @foo.add_func()
-    def foo(a: object):
+def cmp(a, b):
+    an_a = annotation_filter(a)
+    an_b = annotation_filter(b)
+    atb = an_a.envelops(an_b)
+    bta = an_b.envelops(an_a)
+    if atb and not bta:
         return 1
-
-    @foo.add_func()
-    def foo(b: Sequence):
-        return 2
-
-    @foo.add_func()
-    def foo(b: str):
-        return 3
-
-    assert foo(4) == 1
-    assert foo((1, 2, 3)) == 2
-    assert foo('a') == 3
-    assert foo(object()) == 1
+    if bta and not atb:
+        return -1
+    if atb and bta:
+        return None
+    return 0
 
 
-def make_hierarchy(n):
-    base = object
-    ret = []
-    for level in range(n):
-        class Ret(base):
-            depth = level
-
-        Ret.__qualname__ = Ret.__name__ = f'hierarchy[{level}]'
-
-        ret.append(Ret)
-        base = Ret
-    return ret
+class A:
+    pass
 
 
-def test_topology_many():
-    foo = MultiDispatch('foo')
-    hierarchy = make_hierarchy(10)
-    for h in hierarchy:
-        def foo_(i: h):
-            return
-
-        foo_.depth = h.depth
-        foo.add_func(foo_)
-    cands = list(foo.candidates())
-    assert len(cands) == 10
-    for i, c in enumerate(cands):
-        assert c.func.depth == 9 - i
+class B(A):
+    pass
 
 
-def test_topology_multid():
-    foo = MultiDispatch('foo')
-    hierarchy = make_hierarchy(6)
-    coordinates = (
-        (3, 1, 3),
-        (4, 4, 4),
-        (2, 3, 2),
-        (2, 2, 3),
-        (2, 2, 4),
-        (4, 1, 1),
-        (0, 0, 3),
-        (0, 4, 4)
-    )
-    funcs = []
-    for c in coordinates:
-        h0, h1, h2 = (hierarchy[i] for i in c)
-
-        def foo_(i0: h0, i1: h1, i2: h2):
-            return
-
-        foo_.ind = len(funcs)
-        funcs.append(foo_)
-
-        foo.add_func(foo_)
-
-    cands = list(foo.candidates_for_types(hierarchy[-1], hierarchy[-1], hierarchy[-1]))
-    cands = [[c.func.ind for c in l] for l in cands]
-
-    assert cands == [[1], [0, 2, 4, 5, 7], [3], [6]]
+class D(B):
+    pass
 
 
-def test_topology_prio():
-    foo = MultiDispatch()
-
-    class A0: pass
-
-    class A1: pass
-
-    class A(A0, A1): pass
-
-    class B0: pass
-
-    class B1: pass
-
-    class B(B0, B1): pass
-
-    log = []
-
-    @foo.add_func(1)
-    def foo(a: A):
-        log.append(0)
-        return NotImplemented
-
-    @foo.add_func()
-    def foo(b: B):
-        log.append(1)
-        return NotImplemented
-
-    @foo.add_func(2)
-    def foo(a0: A0):
-        log.append(2)
-        return NotImplemented
-
-    @foo.add_func(1)
-    def foo(b0: B0):
-        log.append(3)
-        return NotImplemented
-
-    @foo.add_func()
-    def foo(a1: A1):
-        log.append(4)
-        return NotImplemented
-
-    @foo.add_func(-1)
-    def foo(b1: B1):
-        log.append(5)
-
-    class C(A, B): pass
-
-    assert foo(C()) is None
-    assert log == list(range(6))
+class C(A):
+    pass
 
 
-def test_simple():
-    foo = MultiDispatch()
-
-    @foo.add_func()
-    def foo(a: int, b: Sized = "aaaa"):
-        return a * len(str(b))
-
-    @foo.add_func()
-    def foo(a: int, b: int, c: float = 2):
-        return a * int(b) * c
-
-    assert foo(4) == 16
-    assert foo(4, 3) == 24
-    assert foo(4, (1, 2)) == 4 * 6
-    assert foo(4, 2) == 16
-    assert foo(4, 2, 3) == 24
+class E(D, C):
+    pass
 
 
-def test_redundancy():
-    foo = MultiDispatch()
+class F(E):
+    pass
 
-    @foo.add_func()
-    def foo(a: int):
-        pass
 
-    with raises(ValueError):
-        @foo.add_func()
-        def foo(a: int):
-            pass
+class G:
+    pass
 
-    @foo.add_func(priority=1)
-    def foo(a: int):
-        pass
 
-    with raises(ValueError):
-        @foo.add_func(priority=1)
-        def foo(a: int):
-            pass
+r"""
+ A  G
+/ \
+B C
+| |
+D |
+\ /
+ E
+ |
+ F
+"""
+
+
+def test_cls_cls():
+    assert cmp(B, D) > 0
+    assert cmp(D, C) == 0
+    assert cmp(D, D) is None
+
+
+def test_union_cls():
+    assert cmp(A, Union[B, C]) > 0
+    assert cmp(Union[A, B], D) > 0
+    assert cmp(Union[B, E], C) == 0
+    assert cmp(Union[A, B], A) is None
+
+
+def test_union_union():
+    assert cmp(Union[A, B], Union[B, D]) > 0
+    assert cmp(Union[B, G], Union[B, C]) == 0
+    assert cmp(Union[B, G], Union[B, G]) is None
+
+
+def test_constrained_cls():
+    assert cmp(TypeVar('T', A, B, D), E) > 0
+    assert cmp(A, TypeVar('T', B, C)) > 0
+    assert cmp(TypeVar('T', C, B), D) == 0
+
+
+def test_constrained_union():
+    assert cmp(TypeVar('T', B, A), Union[E, D]) > 0
+    assert cmp(Union[B, C], TypeVar('T', D, E)) > 0
+    assert cmp(Union[B, E], TypeVar('T', A, E)) == 0
+
+
+def test_constrained_constrained():
+    assert cmp(TypeVar('T', B, C), TypeVar('T', E, F)) > 0
+    assert cmp(TypeVar('T', B, D), TypeVar('T', C, E)) == 0
+    T = TypeVar('T', B, C)
+    assert cmp(T, T) is None
+
+
+def test_bounded_cls():
+    assert cmp(A, TypeVar('T', bound=B)) > 0
+    assert cmp(C, TypeVar('T', bound=B)) == 0
+    assert cmp(B, TypeVar('T', bound=Union[D, F])) > 0
+
+
+def test_bounded_union():
+    assert cmp(Union[B, C], TypeVar('T', bound=E)) > 0
+    assert cmp(Union[B, C], TypeVar('T', bound=A)) == 0
+
+
+def test_bounded_constrained():
+    assert cmp(TypeVar('T', B, C), TypeVar('T', bound=F)) > 0
+    assert cmp(TypeVar('T', B, C), TypeVar('T', bound=A)) == 0
+
+
+def test_bounded_bounded():
+    assert cmp(TypeVar('T', bound=object), TypeVar('T', bound=bool)) == 0
+    T = TypeVar('T', bound=Exception)
+    assert cmp(T, T) is None
+
+
+def test_any():
+    assert cmp(A, Any) < 0
+    assert cmp(Any, Union[A, B]) > 0
+    assert cmp(Any, Any) is None
+    assert cmp(Any, object) > 0

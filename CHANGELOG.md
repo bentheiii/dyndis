@@ -1,5 +1,7 @@
 # dyndis changelog
 ## 0.2.0
+### Changed
+* Everything pretty much
 ### Internal
 * Added poetry + workflows
 ### Fixed

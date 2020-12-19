@@ -139,7 +139,7 @@ class UnboundMap(UnboundDelegate):
 
     def __eq__(self, other):
         return type(self) == type(other) and \
-               (self.type_vars, self.func) == (other.type_var, other.func)
+               (self.type_vars, self.func) == (other.type_var, other.inner)
 
     def __hash__(self):
         return hash((self.type_vars, self.func))
