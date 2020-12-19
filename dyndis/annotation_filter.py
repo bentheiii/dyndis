@@ -21,7 +21,7 @@ def is_type_like(t):
 
 
 def annotation_filter(x):
-    if isinstance(x, TYPED_DICT_META):
+    if TYPED_DICT_META and isinstance(x, TYPED_DICT_META):
         raise TypeError('cannot use a Typed Dict as a multidispatch annotation')
 
     if is_type_like(x):
